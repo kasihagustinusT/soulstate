@@ -1,0 +1,38 @@
+# Dependencies
+/node_modules
+
+# Build output
+/dist
+/coverage
+/build
+
+# tsup
+.tsup/
+
+# Vitest
+*.snap
+*.html
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Local environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDE and OS files
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+.DS_Store

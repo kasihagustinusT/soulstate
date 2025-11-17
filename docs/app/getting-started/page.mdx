@@ -1,0 +1,66 @@
+
+import { CodeBlock } from '../../components/CodeBlock';
+
+# Getting Started
+
+Welcome to SoulState! Let's build a simple counter application to get you started.
+
+### 1. Installation
+
+First, install SoulState and its React peer dependency.
+
+<CodeBlock language="bash">
+{`npm install soulstate react`}
+</CodeBlock>
+
+### 2. Create a Store
+
+Create a file `store.ts` to define your state and actions.
+
+<CodeBlock language="typescript">
+{`import { createStore } from 'soulstate';
+
+export interface CounterState {
+  count: number;
+  increment: () => void;
+  decrement: () => void;
+}
+
+export const useCounterStore = createStore<CounterState>((set) => ({
+  count: 0,
+  increment: () => set((state) => ({ count: state.count + 1 })),
+  decrement: () => set((state) => ({ count: state.count - 1 })),
+}));
+`}
+</CodeBlock>
+
+### 3. Use it in your Component
+
+Now, you can use the `useStore` hook to access and update the state in your React components.
+
+<CodeBlock language="tsx">
+{`import { useStore } from 'soulstate';
+import { useCounterStore, CounterState } from './store';
+
+const selectCount = (state: CounterState) => state.count;
+const selectActions = (state: CounterState) => ({
+  increment: state.increment,
+  decrement: state.decrement,
+});
+
+export function Counter() {
+  const count = useStore(useCounterStore, selectCount);
+  const { increment, decrement } = useStore(useCounterStore, selectActions);
+
+  return (
+    <div>
+      <h1>Count: {count}</h1>
+      <button onClick={increment}>+1</button>
+      <button onClick={decrement}>-1</button>
+    </div>
+  );
+}
+`}
+</CodeBlock>
+
+This component will only re-render when the `count` value changes, thanks to the selector. The actions are stable and won't cause re-renders.
