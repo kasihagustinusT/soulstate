@@ -1,4 +1,5 @@
 import * as React from 'react';
+
 import { Store } from '../core/store';
 import { objectIs } from '../utils/equality';
 import { shallow } from '../utils/shallow';

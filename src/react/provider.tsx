@@ -2,6 +2,7 @@
 // However, it can be useful for request-scoped stores in SSR or for dependency injection.
 
 import * as React from 'react';
+
 import { Store } from '../core/store';
 
 const StoreContext = React.createContext<Store<any> | null>(null);
