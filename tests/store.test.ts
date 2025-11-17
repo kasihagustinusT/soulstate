@@ -1,4 +1,5 @@
 import { test, expect, vi } from 'vitest';
+
 import { createStore } from '../src/core/store';
 import { shallow } from '../src/utils/shallow';
 
@@ -18,20 +19,19 @@ test('should update state with set', () => {
 });
 
 test('should update state with a function updater', () => {
-    const store = createStore<CounterState>({ count: 1 });
-    store.set(state => ({ count: state.count + 1 }));
-    expect(store.get().count).toBe(2);
+  const store = createStore<CounterState>({ count: 1 });
+  store.set((state) => ({ count: state.count + 1 }));
+  expect(store.get().count).toBe(2);
 });
 
 test('should notify subscribers on state change', async () => {
   const store = createStore<CounterState>({ count: 0 });
   const listener = vi.fn();
 
-  store.subscribe(state => state.count, listener);
+  store.subscribe((state) => state.count, listener);
 
   store.set({ count: 1 });
-  
-  // Wait for microtask
+
   await Promise.resolve();
 
   expect(listener).toHaveBeenCalledWith(1, 0);
@@ -39,52 +39,49 @@ test('should notify subscribers on state change', async () => {
 });
 
 test('should not notify subscribers if selected state is the same', async () => {
-    const store = createStore({ user: { name: 'A' }, count: 0 });
-    const listener = vi.fn();
-  
-    store.subscribe(state => state.user, listener, { equalityFn: shallow });
-  
-    store.set({ count: 1 });
-    
-    await Promise.resolve();
-  
-    expect(listener).not.toHaveBeenCalled();
+  const store = createStore({ user: { name: 'A' }, count: 0 });
+  const listener = vi.fn();
+
+  store.subscribe((state) => state.user, listener, { equalityFn: shallow });
+
+  store.set({ count: 1 });
+
+  await Promise.resolve();
+
+  expect(listener).not.toHaveBeenCalled();
 });
 
 test('should unsubscribe correctly', async () => {
-    const store = createStore<CounterState>({ count: 0 });
-    const listener = vi.fn();
-    
-    const unsubscribe = store.subscribe(state => state.count, listener);
-    
-    unsubscribe();
+  const store = createStore<CounterState>({ count: 0 });
+  const listener = vi.fn();
 
-    store.set({ count: 1 });
+  const unsubscribe = store.subscribe((state) => state.count, listener);
 
-    await Promise.resolve();
+  unsubscribe();
 
-    expect(listener).not.toHaveBeenCalled();
+  store.set({ count: 1 });
+
+  await Promise.resolve();
+
+  expect(listener).not.toHaveBeenCalled();
 });
 
 test('multiple set calls should be batched into a single notification', async () => {
-    const store = createStore<CounterState>({ count: 0 });
-    const listener = vi.fn();
-    const initialState = store.get();
-    store.subscribe(state => state.count, listener);
+  const store = createStore<CounterState>({ count: 0 });
+  const listener = vi.fn();
+  const initialState = store.get();
 
-    // These calls happen in the same event loop tick
-    store.set({ count: 1 });
-    store.set({ count: 2 });
-    store.set({ count: 3 });
+  store.subscribe((state) => state.count, listener);
 
-    // The listener should not have been called yet because it's scheduled as a microtask
-    expect(listener).not.toHaveBeenCalled();
+  store.set({ count: 1 });
+  store.set({ count: 2 });
+  store.set({ count: 3 });
 
-    // Wait for the microtask queue to be flushed
-    await Promise.resolve(); 
+  expect(listener).not.toHaveBeenCalled();
 
-    // Now the listener should have been called exactly once with the final state
-    expect(listener).toHaveBeenCalledTimes(1);
-    expect(listener).toHaveBeenCalledWith(3, initialState.count);
-    expect(store.get().count).toBe(3);
+  await Promise.resolve();
+
+  expect(listener).toHaveBeenCalledTimes(1);
+  expect(listener).toHaveBeenCalledWith(3, initialState.count);
+  expect(store.get().count).toBe(3);
 });
