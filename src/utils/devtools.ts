@@ -4,7 +4,7 @@ export interface DevToolsConfig {
   features?: any;
 }
 
-export function devtools<T>(
+export function devtools(
   store: any,
   config: DevToolsConfig = {}
 ) {
