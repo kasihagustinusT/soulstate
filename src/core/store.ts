@@ -35,8 +35,6 @@ export function createStore<T extends object>(initialState: T): Store<T> {
   const get = (): T => state;
 
   const set = (updater: StateUpdater<T>) => {
-    const prevState = state;
-
     const partialState = typeof updater === 'function'
       ? (updater as (state: T) => Partial<T> | T)(state)
       : updater;

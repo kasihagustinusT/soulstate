@@ -1,6 +1,6 @@
 import { Middleware } from './types';
 
-export const logger: Middleware = (config) => (set, get, api) => (partial) => {
+export const logger: Middleware = (_config) => (set, get, _api) => (partial) => {
   const prevState = get();
   console.group('SoulState Update');
   console.log('Previous State:', prevState);
@@ -15,7 +15,7 @@ export const logger: Middleware = (config) => (set, get, api) => (partial) => {
 };
 
 export const reduxDevtools = (name?: string): Middleware => {
-  return (config) => (set, get, api) => {
+  return (_config) => (set, get, _api) => {
     if (typeof window === 'undefined') return set;
     
     const extension = (window as any).__REDUX_DEVTOOLS_EXTENSION__;
@@ -40,7 +40,7 @@ export const persistMiddleware = <T>(config: {
   serialize?: (state: T) => string;
   deserialize?: (str: string) => T;
 }): Middleware<T> => {
-  return (storeApi) => (set, get, api) => {
+  return (_storeApi) => (set, get, _api) => {
     const {
       key,
       storage = typeof window !== 'undefined' ? localStorage : undefined,
@@ -59,7 +59,7 @@ export const persistMiddleware = <T>(config: {
           set(parsedState);
         }
       }
-    } catch (error) {
+    } catch (error) => {
       console.warn('SoulState: Failed to load persisted state', error);
     }
     
