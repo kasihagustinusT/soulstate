@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import React from 'react';
 import { expect, test, vi } from 'vitest';
-import { createStore, Store } from '../../src/core/store';
+import { createStore } from '../../src/core/store';
 import { Provider, useStoreContext } from '../../src/react/provider';
 import { useStore } from '../../src/react/useStore';
 

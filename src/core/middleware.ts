@@ -76,8 +76,13 @@ export const persistMiddleware =
           set(parsed);
         }
       }
+<<<<<<< HEAD
     } catch (err) {
       console.warn('SoulState: Failed to load persisted state', err);
+=======
+    } catch (error) {
+      console.warn('SoulState: Failed to load persisted state', error);
+>>>>>>> a6b1818 (fix: clean CI 2)
     }
 
     return (partial) => {
