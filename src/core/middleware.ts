@@ -48,7 +48,7 @@ export const reduxDevtools = (name?: string): Middleware => {
 
 // ⚠️ NOTE:
 // Generic harus ditempatkan SETELAH tanda "="
-// untuk mencegah ESLint Parsing Error (“'{' expected”).
+// untuk mencegah ESLint Parsing Error.
 export const persistMiddleware =
   <T>(config: {
     key: string;
@@ -76,13 +76,8 @@ export const persistMiddleware =
           set(parsed);
         }
       }
-<<<<<<< HEAD
-    } catch (err) {
-      console.warn('SoulState: Failed to load persisted state', err);
-=======
     } catch (error) {
       console.warn('SoulState: Failed to load persisted state', error);
->>>>>>> a6b1818 (fix: clean CI 2)
     }
 
     return (partial) => {
