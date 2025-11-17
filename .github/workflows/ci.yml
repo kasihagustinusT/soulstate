@@ -6,26 +6,32 @@ on:
   pull_request:
     branches: [ main ]
 
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Use Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: 18
           cache: npm
 
-      # FIX: Bersihkan cache & lockfile untuk mencegah Rollup optional deps bug
-      - name: Clean environment (fix Rollup issue)
+      # Prevent Rollup optional dependency issues
+      - name: Clean environment
         run: |
           npm cache clean --force
           rm -rf node_modules package-lock.json
 
-      # FIX: Gunakan npm install, bukan npm ci (ci tidak rebuild lockfile)
       - name: Install dependencies
         run: npm install
 
@@ -47,10 +53,12 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Use Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
