@@ -1,0 +1,32 @@
+# Build output
+!dist/
+
+# Source files
+src/
+
+# Config files
+*.config.js
+*.config.ts
+tsconfig.json
+.eslintrc.cjs
+release.config.js
+
+# Tests, benchmarks, and examples
+tests/
+bench/
+examples/
+playground/
+
+# Node modules and temp files
+node_modules/
+.DS_Store
+*.log
+.env
+.env.*
+
+# Docs and GitHub specific
+.github/
+README.md
+CHANGELOG.md
+CONTRIBUTING.md
+LICENSE
