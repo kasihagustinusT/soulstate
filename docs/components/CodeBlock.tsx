@@ -1,27 +1,40 @@
-'use client';
+"use client";
 
-import { highlight } from 'prismjs';
-import 'prismjs/themes/prism-tomorrow.css'; // Or your preferred theme
-import 'prismjs/components/prism-typescript';
-import 'prismjs/components/prism-jsx';
-import 'prismjs/components/prism-tsx';
-import 'prismjs/components/prism-bash';
+import { useEffect, useRef } from "react";
+import Prism from "prismjs";
 
-// A simple code block component with syntax highlighting
-export function CodeBlock({
+// Import Prism languages (yang kamu butuhkan)
+import "prismjs/components/prism-typescript";
+import "prismjs/components/prism-jsx";
+import "prismjs/components/prism-tsx";
+import "prismjs/components/prism-bash";
+
+// Import theme
+import "prismjs/themes/prism-tomorrow.css";
+
+export default function CodeBlock({
   children,
-  language,
+  language = "tsx",
 }: {
   children: string;
-  language: string;
+  language?: string;
 }) {
-  const html = highlight(children.trim(), (window as any).Prism.languages[language], language);
+  const ref = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    if (ref.current) {
+      Prism.highlightElement(ref.current);
+    }
+  }, []);
+
   return (
     <pre>
       <code
+        ref={ref}
         className={`language-${language}`}
-        dangerouslySetInnerHTML={{ __html: html }}
-      />
+      >
+        {children.trim()}
+      </code>
     </pre>
   );
 }
