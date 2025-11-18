@@ -1,0 +1,108 @@
+import { CodeBlock } from '../../components/code-block';
+import { Callout } from '../../components/callout';
+
+# The Store
+
+The store is the heart of SoulState. It's a self-contained unit that holds your application's state, along with the logic to update it.
+
+## `createStore`
+
+You create a store using the `createStore` function. It takes a single "initializer" function as an argument and returns a `Store` instance.
+
+### Initializer Function
+
+The initializer function is where you define your store's initial state and the actions that modify it. It receives three arguments: `set`, `get`, and `api`.
+
+- `set`: The function used to update the store's state.
+- `get`: A function to read the current state inside actions.
+- `api`: The store instance itself, useful for middleware or advanced patterns.
+
+<CodeBlock language="typescript" code={`
+import { createStore } from 'soulstate';
+
+interface BearState {
+  bears: number;
+  increasePopulation: () => void;
+}
+
+export const useBearStore = createStore<BearState>((set, get) => ({
+  bears: 0,
+  increasePopulation: () => {
+    const currentBears = get().bears;
+    set({ bears: currentBears + 1 });
+  },
+}));
+`} />
+
+### The `set` Function
+
+The `set` function is the only way to modify state. It merges state, meaning you only need to provide the fields you want to change.
+
+**Updating State:**
+You can pass `set` a partial state object.
+
+<CodeBlock language="typescript" code={`
+// Merges this object into the current state
+set({ bears: 5 }); 
+`} />
+
+**Functional Updates:**
+For updates that depend on the current state, pass `set` a function. This is the recommended approach to avoid race conditions.
+
+<CodeBlock language="typescript" code={`
+// The 'state' argument is guaranteed to be the latest state
+set((state) => ({ bears: state.bears + 1 }));
+`} />
+
+<Callout type="warning" title="Immutability">
+SoulState relies on immutability. The `set` function uses structural sharing to detect changes. Always produce a new object or value when updating state. Do not mutate state directly.
+
+**Don't do this:** `state.bears++`
+**Do this:** `set(state => ({ bears: state.bears + 1 }))`
+</Callout>
+
+### The `get` Function
+
+The `get` function allows you to access the store's state from within an action or computation, without subscribing to it. This is useful for calculations that depend on the current state.
+
+<CodeBlock language="typescript" code={`
+const useAuthStore = createStore((set, get) => ({
+  isLoggedIn: false,
+  user: null,
+  logOut: () => {
+    const user = get().user;
+    console.log(`Logging out ${user?.name}`);
+    set({ isLoggedIn: false, user: null });
+  }
+}));
+`} />
+
+## Store Instance Methods
+
+The `createStore` function returns a store object with three primary methods: `get`, `set`, and `subscribe`. While you'll typically interact with the store via the `useStore` hook in React, these methods are available for non-React usage or for integrating with other systems.
+
+- `store.get()`: Returns the current state. **This is non-reactive.**
+- `store.set()`: Updates the state. This will trigger notifications to all subscribers.
+- `store.subscribe()`: Subscribes to state changes.
+
+<CodeBlock language="typescript" code={`
+import { useBearStore } from './store';
+
+// Reading state directly (non-reactive)
+const initialBears = useBearStore.get().bears;
+console.log(initialBears); // 0
+
+// Subscribing to changes
+const unsubscribe = useBearStore.subscribe(
+  state => state.bears,
+  (bears, prevBears) => {
+    console.log(`Bears changed from ${prevBears} to ${bears}`);
+  }
+);
+
+// Updating state
+useBearStore.set({ bears: 10 }); // Logs: "Bears changed from 0 to 10"
+
+// Clean up the subscription
+unsubscribe();
+`} />

@@ -1,145 +1,27 @@
-/* ------------------------------
-   SoulState Docs — Global Styles
-   ------------------------------ */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-/* 1. CSS Reset Ringan (tanpa mengganggu komponen MDX) */
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-
-/* 2. Root Variables (Warna + Typography) */
 :root {
-  --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
-    "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-
-  --text-color: #e4e4e7;
-  --bg-color: #0f0f11;
-
-  --border-color: #2a2a2d;
-
-  --accent: #4f7cff;
-  --accent-hover: #6f93ff;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
-/* Dark mode base */
-html,
 body {
-  background: var(--bg-color);
-  color: var(--text-color);
-  font-family: var(--font-sans);
-  line-height: 1.6;
-  -webkit-font-smoothing: antialiased;
+  @apply bg-dark-bg text-dark-text font-sans;
 }
 
-/* 3. Layout Global */
-body {
-  padding: 0;
-  margin: 0;
-  overflow-x: hidden;
+/* Custom scrollbar for a more modern look */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
 }
-
-/* 4. Anchor Styles */
-a {
-  color: var(--accent);
-  text-decoration: none;
+::-webkit-scrollbar-track {
+  background: transparent;
 }
-
-a:hover {
-  color: var(--accent-hover);
-}
-
-/* 5. Headings */
-h1,
-h2,
-h3,
-h4,
-h5,
-h6 {
-  font-weight: 600;
-  margin: 24px 0 12px;
-  line-height: 1.2;
-}
-
-h1 {
-  font-size: 2rem;
-}
-
-h2 {
-  font-size: 1.6rem;
-}
-
-h3 {
-  font-size: 1.3rem;
-}
-
-/* 6. Paragraph */
-p {
-  margin: 12px 0;
-}
-
-/* 7. Lists */
-ul,
-ol {
-  margin: 12px 0 12px 24px;
-}
-
-/* 8. Code blocks (Prism.js Friendly) */
-pre {
-  padding: 16px;
-  border-radius: 8px;
-  background: #1a1a1c !important;
-  overflow-x: auto;
-}
-
-code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, "Courier New",
-    monospace;
-  font-size: 0.95rem;
-}
-
-/* Inline code */
-p > code,
-li > code {
-  background: #1c1c1f;
-  padding: 2px 6px;
+::-webkit-scrollbar-thumb {
+  background: #27272A;
   border-radius: 4px;
 }
-
-/* Tables */
-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin: 16px 0;
-}
-
-th,
-td {
-  border: 1px solid var(--border-color);
-  padding: 8px 12px;
-}
-
-th {
-  background: #1c1c1f;
-  font-weight: 600;
-}
-
-/* Images */
-img {
-  max-width: 100%;
-  border-radius: 8px;
-}
-
-/* Blockquote */
-blockquote {
-  border-left: 4px solid var(--accent);
-  padding-left: 12px;
-  margin: 16px 0;
-  opacity: 0.9;
-}
-
-/* MDX elements spacing fix */
-.mdx-content > * + * {
-  margin-top: 1rem;
+::-webkit-scrollbar-thumb:hover {
+  background: #3f3f46;
 }
