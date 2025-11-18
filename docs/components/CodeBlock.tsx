@@ -1,20 +1,24 @@
 'use client';
+import { useEffect } from 'react';
 import Prism from 'prismjs';
 import 'prismjs/themes/prism-tomorrow.css';
+
+// Load languages
 import 'prismjs/components/prism-typescript';
 import 'prismjs/components/prism-jsx';
 import 'prismjs/components/prism-tsx';
 import 'prismjs/components/prism-bash';
 
-export function CodeBlock({ children, language }: { children: string; language: string }) {
-  const html = Prism.highlight(children.trim(), Prism.languages[language], language);
+export function CodeBlock({ children, language = 'typescript' }: { children: string; language?: string }) {
+  useEffect(() => {
+    Prism.highlightAll();
+  }, []);
 
   return (
-    <pre>
-      <code
-        className={`language-${language}`}
-        dangerouslySetInnerHTML={{ __html: html }}
-      />
+    <pre className={`language-${language} rounded-md`}>
+      <code className={`language-${language}`}>
+        {children.trim()}
+      </code>
     </pre>
   );
 }
