@@ -1,28 +1,28 @@
 import createMDX from "@next/mdx";
 
-/** Enable MDX (.mdx, .md) */
+/** Enable MDX */
 const withMDX = createMDX({
-  extension: /\.mdx?$/
+  extension: /\.mdx?$/,
+  options: {
+    remarkPlugins: [],
+    rehypePlugins: [],
+  },
 });
 
 /** @type {import('next').NextConfig} */
-const nextConfig = withMDX({
+const nextConfig = {
   pageExtensions: ["ts", "tsx", "js", "jsx", "md", "mdx"],
 
-  // IMPORTANT for Vercel
+  // Required for Vercel
   output: "standalone",
 
-  // Disable image optimization (not needed for docs)
   images: {
-    unoptimized: true
+    unoptimized: true,
   },
 
   experimental: {
     mdxRs: true,
-    serverActions: {
-      allowedOrigins: ["*"]
-    }
   }
-});
+};
 
-export default nextConfig;
+export default withMDX(nextConfig);
