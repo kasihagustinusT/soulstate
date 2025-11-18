@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/ead04d0e-b164-4de1-94c0-82d4fed47942" width="250" alt="SoulState Logo" />
+  <img src="https://github.com/user-attachments/assets/d8cef924-2274-41bd-96cb-9ba00dc59079" width="200" alt="SoulState Logo" />
 </p>
 
 <h1 align="center">SoulState</h1>
