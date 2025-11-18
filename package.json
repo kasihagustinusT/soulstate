@@ -1,7 +1,7 @@
 {
   "name": "soulstate",
   "type": "module",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "The Zero-Overhead State of Mind. A minimalist, high-performance state management library.",
   "author": "Kasih Agustinus",
   "license": "MIT",
