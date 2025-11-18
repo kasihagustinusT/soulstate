@@ -9,7 +9,7 @@ import 'prismjs/components/prism-jsx';
 import 'prismjs/components/prism-tsx';
 import 'prismjs/components/prism-bash';
 
-export function CodeBlock({ children, language = 'typescript' }: { children: string; language?: string }) {
+export default function CodeBlock({ children, language = 'typescript' }: { children: string; language?: string }) {
   useEffect(() => {
     Prism.highlightAll();
   }, []);
