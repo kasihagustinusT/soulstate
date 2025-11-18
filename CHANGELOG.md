@@ -1,3 +1,10 @@
+## [1.0.1](https://github.com/kasihagustinusT/soulstate/compare/v1.0.0...v1.0.1) (2025-11-18)
+
+
+### Bug Fixes
+
+* **docs:** configure mdx and update dependencies ([f08ceb3](https://github.com/kasihagustinusT/soulstate/commit/f08ceb33bac1a52f43bbb3fdc7cb27a5e7e4e8da))
+
 # 1.0.0 (2025-11-17)
 
 
