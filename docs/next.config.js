@@ -1,24 +1,24 @@
-import createMDX from '@next/mdx'
-import remarkGfm from 'remark-gfm'
+import createMDX from '@next/mdx';
+import remarkGfm from 'remark-gfm';
 
 /** @type {import('next').NextConfig} */
 const withMDX = createMDX({
   extension: /\.mdx?$/,
   options: {
     remarkPlugins: [remarkGfm],
-    rehypePlugins: []
-  }
-})
+    rehypePlugins: [],
+  },
+});
 
 const nextConfig = withMDX({
   pageExtensions: ['ts', 'tsx', 'js', 'jsx', 'md', 'mdx'],
   output: 'standalone',
   images: {
-    unoptimized: true
+    unoptimized: true,
   },
   experimental: {
-    mdxRs: false
-  }
-})
+    mdxRs: false,
+  },
+});
 
-export default nextConfig
+export default nextConfig;
