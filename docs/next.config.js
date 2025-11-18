@@ -5,11 +5,20 @@ const withMDX = createMDX({
 });
 
 /** @type {import('next').NextConfig} */
-const nextConfig = {
-  pageExtensions: ['ts', 'tsx', 'mdx'],
-  experimental: {
-    mdxRs: true
-  }
-};
+const nextConfig = withMDX({
+  pageExtensions: ['ts', 'tsx', 'js', 'jsx', 'md', 'mdx'],
 
-export default withMDX(nextConfig);
+  // required untuk deployment Vercel
+  output: 'standalone',
+
+  images: {
+    unoptimized: true
+  },
+
+  // NON-AKTIFKAN MDX-RS (ini penyebab Next pakai import-source-file)
+  experimental: {
+    mdxRs: false
+  }
+});
+
+export default nextConfig;
