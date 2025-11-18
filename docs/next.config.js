@@ -1,16 +1,15 @@
-// next.config.js
-const createMDX = require('@next/mdx');
-const remarkGfm = require('remark-gfm');
+import createMDX from '@next/mdx'
+import remarkGfm from 'remark-gfm'
 
+/** @type {import('next').NextConfig} */
 const withMDX = createMDX({
   extension: /\.mdx?$/,
   options: {
     remarkPlugins: [remarkGfm],
-    rehypePlugins: [],
-  },
-});
+    rehypePlugins: []
+  }
+})
 
-/** @type {import('next').NextConfig} */
 const nextConfig = withMDX({
   pageExtensions: ['ts', 'tsx', 'js', 'jsx', 'md', 'mdx'],
   output: 'standalone',
@@ -20,6 +19,6 @@ const nextConfig = withMDX({
   experimental: {
     mdxRs: false
   }
-});
+})
 
-module.exports = nextConfig;
+export default nextConfig
