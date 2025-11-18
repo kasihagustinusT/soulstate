@@ -1,21 +1,25 @@
-
-import { CodeBlock } from '../../components/CodeBlock';
+import { CodeBlock } from "../../components/CodeBlock";
 
 # Getting Started
 
-Welcome to SoulState! Let's build a simple counter application to get you started.
+Welcome to **SoulState**!  
+This guide will help you build your first store using the ultra-fast SoulState runtime.
 
-### 1. Installation
+---
 
-First, install SoulState and its React peer dependency.
+## 1. Installation
+
+Install SoulState and React:
 
 <CodeBlock language="bash">
 {`npm install soulstate react`}
 </CodeBlock>
 
-### 2. Create a Store
+---
 
-Create a file `store.ts` to define your state and actions.
+## 2. Create a Store
+
+Make a file called `store.ts`:
 
 <CodeBlock language="typescript">
 {`import { createStore } from 'soulstate';
@@ -34,9 +38,11 @@ export const useCounterStore = createStore<CounterState>((set) => ({
 `}
 </CodeBlock>
 
-### 3. Use it in your Component
+---
 
-Now, you can use the `useStore` hook to access and update the state in your React components.
+## 3. Use it in your Component
+
+Now use SoulState’s `useStore` selector-driven hook:
 
 <CodeBlock language="tsx">
 {`import { useStore } from 'soulstate';
@@ -63,4 +69,6 @@ export function Counter() {
 `}
 </CodeBlock>
 
-This component will only re-render when the `count` value changes, thanks to the selector. The actions are stable and won't cause re-renders.
+---
+
+Selectors ensure this component re-renders **only when the selected slice changes**, giving you **optimal performance with zero overhead**.
