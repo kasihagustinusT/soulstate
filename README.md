@@ -1,18 +1,26 @@
-<div align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/kasihagustinusT/soulstate/main/assets/soulstate-logo-color.svg">
-    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/kasihagustinusT/soulstate/main/assets/soulstate-logo-mono.svg">
-    <img src="https://raw.githubusercontent.com/kasihagustinusT/soulstate/main/assets/soulstate-logo-color.svg" alt="SoulState Logo" width="128" height="128">
-  </picture>
-  <h1>SoulState</h1>
-  <p>The Zero-Overhead State of Mind.</p>
-  <p>
-    <a href="https://www.npmjs.com/package/soulstate"><img src="https://img.shields.io/npm/v/soulstate.svg" alt="NPM Version"></a>
-    <a href="https://github.com/kasihagustinusT/soulstate/actions/workflows/ci.yml"><img src="https://github.com/kasihagustinusT/soulstate/actions/workflows/ci.yml/badge.svg" alt="Build Status"></a>
-    <a href="https://bundlephobia.com/package/soulstate"><img src="https://img.shields.io/bundlephobia/minzip/soulstate" alt="Bundle Size"></a>
-    <a href="/LICENSE"><img src="https://img.shields.io/npm/l/soulstate.svg" alt="License"></a>
-  </p>
-</div>
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/ead04d0e-b164-4de1-94c0-82d4fed47942" width="250" alt="SoulState Logo" />
+</p>
+
+<h1 align="center">SoulState</h1>
+
+<p align="center"><strong>The Zero-Overhead State of Mind.</strong></p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/soulstate">
+    <img src="https://img.shields.io/npm/v/soulstate.svg" alt="NPM Version" />
+  </a>
+  <a href="https://github.com/kasihagustinusT/soulstate/actions/workflows/ci.yml">
+    <img src="https://github.com/kasihagustinusT/soulstate/actions/workflows/ci.yml/badge.svg" alt="Build Status" />
+  </a>
+  <a href="https://bundlephobia.com/package/soulstate">
+    <img src="https://img.shields.io/bundlephobia/minzip/soulstate" alt="Bundle Size" />
+  </a>
+  <a href="/LICENSE">
+    <img src="https://img.shields.io/npm/l/soulstate.svg" alt="License" />
+  </a>
+</p>
+
 
 ---
 
