@@ -1,0 +1,113 @@
+---
+title: Selectors
+sidebar_label: Selectors
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import { Admonition } from '@site/src/components/Admonition';
+
+# Selectors
+
+Selectors are the cornerstone of SoulState's design and performance. A selector is a function that takes the entire state object and returns a smaller, specific piece of it.
+
+**The `useStore` hook is selector-driven.** This means your components subscribe to state changes *through* selectors.
+
+<CodeBlock language="tsx">
+{`import { useStore } from 'soulstate/react';
+import { useBearStore } from './store';
+
+// This is a selector function.
+// It takes the full state and returns only the 'bears' number.
+const bearSelector = (state) => state.bears;
+
+function BearCounter() {
+  // The component subscribes to the store VIA the selector.
+  const bears = useStore(useBearStore, bearSelector);
+
+  // This component will ONLY re-render when 'state.bears' changes.
+  // Changes to any other part of the store will be ignored.
+  return <div>{bears} around here...</div>;
+}
+`}
+</CodeBlock>
+
+## Why Selectors are Essential for Performance
+
+Without selectors, components would have to subscribe to the entire state object. This would cause them to re-render every time *any* part of the state changes, leading to many unnecessary and expensive renders.
+
+Selectors allow you to create a "virtual" subscription to a specific slice of the state.
+
+<Admonition type="tip" title="The Golden Rule of Selectors">
+  <p>A component should only select the minimal amount of state it needs to render. The more granular your selectors, the fewer re-renders your application will have.</p>
+</Admonition>
+
+## Selecting Multiple Items
+
+A common pattern is to select multiple values for a single component. The naive approach can lead to performance issues.
+
+### The Problem: New Object References
+
+<CodeBlock language="tsx">
+{`// ⚠️ ANTI-PATTERN
+// This selector creates a new object { bears, increase } every time it runs.
+// Because the object reference is always new, the default equality check fails,
+// and the component re-renders on EVERY state change.
+const { bears, increase } = useStore(useBearStore, (state) => ({
+  bears: state.bears,
+  increase: state.increase,
+}));
+`}
+</CodeBlock>
+
+### The Solution: `shallow` Equality
+
+To solve this, you must provide an alternative equality function that compares the *contents* of the object, not its reference. SoulState provides the `shallow` function for this exact purpose.
+
+<CodeBlock language="tsx">
+{`import { useStore, shallow } from 'soulstate/react';
+
+// ✅ BEST PRACTICE
+// By providing 'shallow' as the third argument, we tell useStore
+// to compare the values of 'bears' and 'increase' inside the object.
+// The component now only re-renders if 'state.bears' or 'state.increase' changes.
+const { bears, increase } = useStore(
+  useBearStore,
+  (state) => ({
+    bears: state.bears,
+    increase: state.increase,
+  }),
+  shallow
+);
+`}
+</CodeBlock>
+
+## Memoizing Selectors for Expensive Computations
+
+If your selector performs an expensive computation (e.g., filtering a large array), you should memoize it to prevent re-running the computation on every render.
+
+While SoulState doesn't ship with a `createSelector` utility out of the box (to keep the core minimal), you can easily use libraries like `reselect` or a simple custom memoization hook.
+
+### Example with `reselect`:
+
+<CodeBlock language="typescript">
+{`import { createSelector } from 'reselect';
+
+const selectItems = (state) => state.items;
+const selectFilter = (state) => state.filter;
+
+const selectVisibleItems = createSelector(
+  [selectItems, selectFilter],
+  (items, filter) => {
+    console.log('Running expensive filter...');
+    return items.filter(item => item.name.includes(filter));
+  }
+);
+
+// In your component:
+// const visibleItems = useStore(useItemStore, selectVisibleItems);
+`}
+</CodeBlock>
+
+<Admonition type="info" title="When to Memoize">
+  <p>You only need to memoize selectors if they are performing computationally expensive work. For simple property access (<code>state => state.prop</code>), memoization is unnecessary overhead.</p>
+</Admonition>

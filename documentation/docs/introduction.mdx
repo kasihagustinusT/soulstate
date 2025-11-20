@@ -1,0 +1,40 @@
+---
+title: Introduction
+sidebar_label: Introduction
+sidebar_position: 0
+---
+
+import { Admonition } from '@site/src/components/Admonition';
+
+# Introduction to SoulState
+
+**The Zero-Overhead State of Mind.**
+
+SoulState is a minimalist, high-performance state management library for modern web applications. It is designed from the ground up to be:
+
+- **Fast**: Automatic batching, selector-based subscriptions, and O(1) subscriber management ensure your app stays fast, no matter the scale.
+- **Scalable**: Built for complex applications, with first-class support for middleware and async operations.
+- **Developer-Friendly**: A simple, intuitive API that gets out of your way and lets you focus on building.
+- **Tiny**: A minimal footprint to keep your bundles small.
+
+<Admonition type="info" title="Core Philosophy">
+  <p>SoulState believes that components should only re-render when the exact data they need changes. By using selectors for data access, you get surgical precision in your updates, leading to optimal performance by default.</p>
+</Admonition>
+
+## Key Features
+
+- **Selector-driven `useStore` hook**: Subscribe to the exact state you need.
+- **Automatic batching with microtasks**: Multiple updates, one render.
+- **Middleware support**: Extend the store with logging, persistence, and more.
+- **`useSyncExternalStore`**: Full React 18+ concurrent features compatibility.
+- **Minimal API**: `createStore`, `get`, `set`, `subscribe`. That's it.
+
+## Comparison to Other Libraries
+
+| Library | Architecture | Key Characteristic | Use Case |
+| :--- | :--- | :--- | :--- |
+| **SoulState** | Flux-like (single store) | Selector-based subscriptions, automatic batching | Optimal for apps where render performance is critical. |
+| **Zustand** | Flux-like (single store) | Very similar to SoulState; SoulState aims for deeper performance optimizations. | General-purpose state management; a great alternative. |
+| **Redux Toolkit** | Flux (single store) | Boilerplate-heavy, explicit actions/reducers | Large-scale applications requiring strict, auditable update patterns. |
+| **Jotai / Valtio** | Atomic / Proxy-based | Automatic dependency tracking | Simpler state models where individual pieces of state are managed. |
+| **Signals** | Fine-grained reactivity | Tracks dependencies within functions | Ideal for environments where rendering isn't tied to a component tree (e.g., Solid.js). |

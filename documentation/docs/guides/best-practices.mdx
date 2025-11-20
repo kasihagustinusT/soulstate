@@ -1,0 +1,177 @@
+---
+title: Best Practices
+sidebar_label: Best Practices
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import { Admonition } from '@site/src/components/Admonition';
+
+# Guides: Best Practices for SoulState
+
+Adhering to best practices ensures your SoulState applications are performant, maintainable, and scalable. This guide outlines key recommendations for structuring your stores, managing state, and interacting with React components.
+
+## 1. Modularize Your Stores
+
+**Principle**: Avoid a single, monolithic store. Break down your application state into smaller, independent, and domain-specific stores.
+
+**Why**:
+-   **Clearer Ownership**: Each store manages a specific part of your application (e.g., `userStore`, `productStore`, `uiStore`).
+-   **Improved Maintainability**: Changes in one domain are less likely to affect others.
+-   **Better Performance**: Smaller stores mean fewer subscribers to iterate over during notifications, even if the overall state is large.
+
+<CodeBlock language="typescript">
+{`// Good: Separate stores for different domains
+// stores/authStore.ts
+export const useAuthStore = createStore(...);
+// stores/cartStore.ts
+export const useCartStore = createStore(...);
+// stores/themeStore.ts
+export const useThemeStore = createStore(...);
+`}
+</CodeBlock>
+
+## 2. Use Selectors Judiciously
+
+**Principle**: Always use selectors to extract the minimal amount of state a component needs.
+
+**Why**:
+-   **Optimal Performance**: Components only re-render when their specific selected data changes.
+-   **Reduced Re-renders**: Prevents unnecessary updates, especially in large component trees.
+
+<CodeBlock language="tsx">
+{`// ❌ Anti-pattern: Selects entire state, re-renders on any change
+// const state = useStore(useAppStore, s => s);
+
+// ✅ Best Practice: Select only what's needed
+function UserGreeting() {
+  const userName = useStore(useAuthStore, s => s.user.name);
+  return <div>Hello, {userName}!</div>;
+}
+`}
+</CodeBlock>
+
+## 3. Embrace Immutability
+
+**Principle**: Never directly mutate state. Always create new objects or arrays when updating.
+
+**Why**:
+-   **Predictable Change Detection**: SoulState relies on reference equality (`Object.is`) to detect changes. Mutating state means the reference doesn't change, and components won't re-render.
+-   **Easier Debugging**: Avoids hard-to-track side effects.
+
+<CodeBlock language="typescript">
+{`// ❌ Anti-pattern: Direct mutation
+// useCartStore.set(state => { state.items.push(newItem); });
+
+// ✅ Best Practice: Create a new array/object
+useCartStore.set(state => ({
+  items: [...state.items, newItem]
+}));
+
+// ❌ Anti-pattern: Mutates original object
+// useUserStore.set(state => { state.user.age++; });
+
+// ✅ Best Practice: Creates a new object
+useUserStore.set(state => ({
+  user: { ...state.user, age: state.user.age + 1 }
+}));
+`}
+</CodeBlock>
+
+## 4. Use `shallow` for Multiple Selections
+
+**Principle**: When selecting multiple properties into a new object, use the `shallow` equality function.
+
+**Why**:
+-   Prevents unnecessary re-renders that occur when a selector creates a new object on every run, even if its contents are the same.
+
+<CodeBlock language="tsx">
+{`import { useStore, shallow } from 'soulstate/react';
+
+// ❌ Anti-pattern: Will re-render on every store update
+// const { user, loading } = useStore(useAuthStore, s => ({ user: s.user, loading: s.loading }));
+
+// ✅ Best Practice: Use shallow for multiple properties
+const { user, loading } = useStore(
+  useAuthStore,
+  s => ({ user: s.user, loading: s.loading }),
+  shallow
+);
+`}
+</CodeBlock>
+
+## 5. Define Actions within the Store
+
+**Principle**: Encapsulate state-modifying logic (actions) directly within your `createStore` initializer.
+
+**Why**:
+-   **Centralized Logic**: All state-related logic is co-located with the state itself.
+-   **Testability**: Actions are pure functions (or async functions) that can be easily tested.
+-   **Type Safety**: TypeScript can infer types for your actions directly from the store definition.
+
+<CodeBlock language="typescript">
+{`export const useTodoStore = createStore(set => ({
+  todos: [],
+  addTodo: (text: string) => set(state => ({
+    todos: [...state.todos, { id: Date.now(), text, completed: false }]
+  })),
+  toggleTodo: (id: number) => set(state => ({
+    todos: state.todos.map(todo =>
+      todo.id === id ? { ...todo, completed: !todo.completed } : todo
+    )
+  })),
+}));
+`}
+</CodeBlock>
+
+## 6. Leverage Middleware
+
+**Principle**: Use middleware for cross-cutting concerns like logging, persistence, or integration with external tools.
+
+**Why**:
+-   **Separation of Concerns**: Keeps your core store logic clean.
+-   **Reusability**: Middleware can be applied to multiple stores.
+-   **Extensibility**: Easily add powerful features without modifying the core.
+
+<CodeBlock language="typescript">
+{`import { persist, logger } from 'soulstate/middleware';
+
+export const useSettingsStore = createStore(
+  logger( // Outermost middleware runs first
+    persist( // Inner middleware runs next
+      (set) => ({ theme: 'dark', /* ... */ }),
+      { name: 'app-settings' }
+    )
+  )
+);
+`}
+</CodeBlock>
+
+## 7. Optimize Async Operations
+
+**Principle**: Handle async operations (data fetching) within your store actions, updating loading/error states as needed.
+
+**Why**:
+-   **Centralized Async Logic**: Keeps data fetching and state updates together.
+-   **Consistent UI**: Easily manage loading and error states across your application.
+
+<CodeBlock language="typescript">
+{`export const useUserStore = createStore(set => ({
+  user: null,
+  loading: false,
+  error: null,
+  fetchUser: async (id: string) => {
+    set({ loading: true, error: null });
+    try {
+      const response = await fetch('/api/users/' + id);
+      if (!response.ok) throw new Error('Failed to fetch user');
+      const user = await response.json();
+      set({ user, loading: false });
+    } catch (error) {
+      set({ error: error.message, loading: false });
+    }
+  },
+}));
+`}
+</CodeBlock>
+
+By following these best practices, you can harness the full power of SoulState to build robust, high-performance, and maintainable applications.

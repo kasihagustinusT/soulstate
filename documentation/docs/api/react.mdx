@@ -1,0 +1,129 @@
+---
+title: React Hooks API
+sidebar_label: React Hooks
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import { Admonition } from '@site/src/components/Admonition';
+
+# API: React Hooks
+
+SoulState provides a set of powerful React hooks for declaratively binding your components to the store. These hooks are built on top of `React.useSyncExternalStore` for full compatibility with React 18's concurrent features.
+
+## `useStore`
+
+This is the primary hook for consuming state in your components. It creates a subscription to a selected slice of your store's state and ensures your component re-renders only when that specific slice changes.
+
+### Signature
+
+<CodeBlock language="typescript">
+{`function useStore<T, S>(
+  store: Store<T>,
+  selector: (state: T) => S,
+  equalityFn?: (a: S, b: S) => boolean
+): S;
+`}
+</CodeBlock>
+
+### Parameters
+
+1.  **`store`**: The store instance returned by `createStore`.
+2.  **`selector`**: A function that receives the entire state and returns the desired value or object. The component will subscribe to changes in this returned value.
+3.  **`equalityFn`** (optional): A function to compare the previous and current selected values. If the function returns `true`, the component will not re-render.
+    - **Default**: `Object.is` (strict reference equality).
+
+### Return Value
+
+The hook returns the value selected by your `selector` function.
+
+### Usage Examples
+
+**1. Selecting a single primitive value:**
+The component re-renders only when `state.count` changes.
+
+<CodeBlock language="tsx">
+{`import { useStore } from 'soulstate/react';
+import { useCounterStore } from './store';
+
+function CounterDisplay() {
+  const count = useStore(useCounterStore, (state) => state.count);
+  return <div>Count: {count}</div>;
+}
+`}
+</CodeBlock>
+
+**2. Selecting an action:**
+The component will likely never re-render from this hook, as action functions are typically stable.
+
+<CodeBlock language="tsx">
+{`function Controls() {
+  const increment = useStore(useCounterStore, (state) => state.increment);
+  return <button onClick={increment}>Increment</button>;
+}
+`}
+</CodeBlock>
+
+<Admonition type="caution" title="Selector Best Practices">
+  <p>Always define selectors outside the component or memoize them with <code>React.useCallback</code> if they depend on props. This prevents the subscription from being torn down and recreated on every render.</p>
+  
+  <p><strong>Good:</strong></p>
+  <CodeBlock language="javascript">
+    {`const selectCount = state => state.count;
+function Cmp() {
+  const count = useStore(store, selectCount);
+  // ...
+}`}
+  </CodeBlock>
+
+  <p><strong>Also Good (if selector depends on props):</strong></p>
+  <CodeBlock language="javascript">
+    {`function Cmp({ id }) {
+  const selectItem = useCallback(state => state.items[id], [id]);
+  const item = useStore(store, selectItem);
+  // ...
+}`}
+  </CodeBlock>
+</Admonition>
+
+---
+
+## `shallow`
+
+A built-in equality function used for efficiently subscribing to multiple state properties at once. It performs a shallow comparison of the properties of an object.
+
+### Signature
+
+<CodeBlock language="typescript">
+{`function shallow<T>(objA: T, objB: T): boolean;
+`}
+</CodeBlock>
+
+### Usage
+
+Use `shallow` as the third argument to `useStore` when your selector returns a new object. This prevents re-renders as long as the shallow properties of the returned object are the same.
+
+<CodeBlock language="tsx">
+{`import { useStore, shallow } from 'soulstate/react';
+import { useUserStore } from './store';
+
+function UserProfile() {
+  // Select multiple properties into a new object
+  const { username, email } = useStore(
+    useUserStore,
+    (state) => ({ username: state.username, email: state.email }),
+    shallow // Compare the contents of the returned object
+  );
+
+  return (
+    <div>
+      <p>Username: {username}</p>
+      <p>Email: {email}</p>
+    </div>
+  );
+}
+`}
+</CodeBlock>
+
+<Admonition type="danger" title="Anti-Pattern without `shallow`">
+  <p>Without <code>shallow</code>, the <code>UserProfile</code> component above would re-render on <strong>every</strong> state change in the entire store. This is because the selector <code>(state) => ({`{...}`})</code> creates a new object with a new reference on every execution, causing the default <code>Object.is</code> equality check to always fail.</p>
+</Admonition>

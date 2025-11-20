@@ -1,0 +1,47 @@
+---
+title: Why SoulState Avoids Proxies
+sidebar_label: No Proxies
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import { Admonition } from '@site/src/components/Admonition';
+
+# Internals: Why SoulState Avoids Proxies
+
+Modern state management libraries often leverage JavaScript Proxies (e.g., Valtio, Immer's draft state). While powerful, SoulState deliberately chooses not to use Proxies in its core implementation. This decision is rooted in a philosophy of explicit control, predictable performance, and broad compatibility.
+
+## What are Proxies?
+
+A JavaScript `Proxy` object wraps another object (the "target") and allows you to intercept and customize fundamental operations for that target, such as property lookup, assignment, enumeration, and function invocation.
+
+Libraries like Valtio use Proxies to automatically track which parts of the state are being accessed by a component. When that part of the state changes, the component automatically re-renders.
+
+## SoulState's Philosophy: Explicit Control
+
+SoulState's core design revolves around **explicit selectors** and **immutable updates**.
+
+-   **Explicit Selectors**: You explicitly define *what* part of the state your component depends on using a selector function (`state => state.someValue`).
+-   **Immutable Updates**: You explicitly update state by creating new objects (`set({ someValue: newValue })`).
+
+This explicit approach offers several advantages:
+
+1.  **Predictable Performance**: The performance characteristics of selectors and equality checks are well-understood and highly optimized (`Object.is`, `shallow`). There are no hidden performance costs from deep proxy traversals or complex dependency graphs.
+2.  **Clear Dependency Graph**: It's always clear from the code what a component is subscribed to. This aids debugging and reasoning about application flow.
+3.  **No "Magic"**: Developers have full control over when and how re-renders occur, avoiding unexpected behavior that can sometimes arise from implicit dependency tracking.
+
+## Downsides of Proxies (for SoulState's goals)
+
+While Proxies offer convenience, they come with trade-offs that conflict with SoulState's design goals:
+
+1.  **Performance Overhead**: While initial access might be O(1), deep traversals of large state objects through proxies can introduce overhead. More importantly, the "magic" of implicit tracking can sometimes lead to components re-rendering for changes they don't truly care about, if the proxy's dependency tracking is too broad.
+2.  **Debugging Complexity**: Debugging issues related to implicit dependency tracking can be challenging. It's harder to pinpoint why a component re-rendered if you don't explicitly define its subscriptions.
+3.  **Compatibility**: Proxies are a relatively newer JavaScript feature. While widely supported in modern browsers, avoiding them ensures broader compatibility, especially in older environments or specific JavaScript runtimes where Proxy implementations might differ or be less optimized.
+4.  **Serialization Issues**: Proxy objects themselves are not directly serializable (e.g., for `localStorage` or `postMessage` to Web Workers) without explicit handling. This can complicate persistence or inter-thread communication.
+
+<Admonition type="info" title="SoulState's Alternative: Optimized Immutability">
+  <p>Instead of Proxies, SoulState relies on highly optimized immutable updates combined with a fast, explicit selector-based subscription model. This provides similar benefits (fine-grained reactivity) without the trade-offs associated with implicit proxy-based tracking.</p>
+</Admonition>
+
+## Conclusion
+
+SoulState's choice to avoid Proxies is a deliberate design decision to prioritize explicit control, predictable performance, and broad compatibility. It empowers developers with a clear mental model of state flow and rendering behavior, leading to robust and high-performance applications.

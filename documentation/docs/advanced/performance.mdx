@@ -1,0 +1,111 @@
+---
+title: Performance Tuning
+sidebar_label: Performance
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import { Admonition } from '@site/src/components/Admonition';
+
+# Performance
+
+SoulState is engineered for high performance out of the box. This document details the specific design choices and their impact on CPU, memory, and rendering behavior, as well as tips for tuning your application.
+
+## Key Performance Pillars
+
+1.  **O(1) Subscription Management**: Fast component mounting/unmounting.
+2.  **Automatic Batching**: Minimal re-renders from multiple updates.
+3.  **Selector-based Subscriptions**: Surgical updates prevent wasted renders.
+4.  **Minimal Structural Sharing**: Reduced memory pressure and garbage collection.
+5.  **Tiny Bundle Size**: Faster initial load and parse times.
+
+---
+
+## 1. CPU Characteristics
+
+### Subscription & Unsubscription: O(1)
+
+As detailed in the [Linked-List Subscriber System](../internals/linked-list) documentation, using a doubly linked list allows for constant-time addition and removal of subscribers. This means the cost of mounting or unmounting a subscribed component does not increase as the number of total subscribers grows. This is a major advantage over array-based systems (O(n)).
+
+### Update & Notification: O(n)
+
+When `set` is called, the notification process must iterate through all `n` subscribers. This is an O(n) operation.
+
+**However, the "work" done for each subscriber is minimal:**
+1.  Run the selector function.
+2.  Run the equality function.
+
+Because selectors are typically simple property lookups and the default equality check (`Object.is`) is extremely fast, the real-world cost of this O(n) operation is very low.
+
+<Admonition type="info" title="Comparison to Proxy-based Libraries">
+  <p>Proxy-based libraries (e.g., Valtio) offer O(1) write operations because they can track property access at a granular level. However, this comes at the cost of a more complex subscription model and the overhead of proxy traps. SoulState's selector model provides a more explicit and often more predictable performance characteristic.</p>
+</Admonition>
+
+---
+
+## 2. Memory Characteristics
+
+### State Snapshots
+
+SoulState holds only **one** version of the state object in memory at any given time. It does not keep a history of states, which makes its baseline memory usage minimal. (Time-travel can be added via middleware, but it is not part of the core).
+
+### Minimal Structural Sharing
+
+The `set` function includes a critical optimization to reduce memory churn. Before creating a new state object, it first checks if any of the updated values are actually different from the current ones.
+
+<CodeBlock language="typescript">
+{`// from src/core/store.ts
+
+let hasChanged = false;
+const updatedKeys = Object.keys(partialState);
+for (let i = 0; i < updatedKeys.length; i++) {
+  const key = updatedKeys[i] as keyof T;
+  // Object.is is used for fast comparison
+  if (!Object.is(state[key], (partialState as T)[key])) {
+    hasChanged = true;
+    break;
+  }
+}
+
+if (!hasChanged) {
+  return; // Bail out! No new object is created.
+}
+
+// Only if something truly changed, create a new object
+const nextState = { ...state, ...(partialState as Partial<T>) };
+state = nextState;
+`}
+</CodeBlock>
+
+This prevents the creation of new state objects for "no-op" updates (e.g., `set({ count: 1 })` when `count` is already `1`). This reduces the workload on the JavaScript garbage collector, leading to smoother performance by avoiding GC pauses.
+
+---
+
+## 3. Rendering Performance
+
+Rendering performance is SoulState's primary goal. It achieves this through two main mechanisms:
+
+### Automatic Batching
+
+By queueing notifications in a microtask, SoulState ensures that a sequence of updates results in **only one** React render cycle, not multiple.
+
+### Selector-based Rendering
+
+This is the most important concept. A component subscribed with `useStore` will **only re-render if the data returned by its selector changes.**
+
+Consider this store and component:
+
+<CodeBlock language="tsx">
+{`const useAppStore = createStore(set => ({
+  user: { name: 'John', status: 'active' },
+  tasks: ['Task 1'],
+}));
+
+function UserStatus() {
+  // This component ONLY cares about the user's status.
+  const status = useStore(useAppStore, state => state.user.status);
+  return <div>Status: {status}</div>;
+}
+`}
+</CodeBlock>
+
+When another part of the application updates the `tasks` array, the `UserStatus` component's selector will re-run, but the returned value (`'active'`) will not have changed. The equality check (`Object.is('active', 'active')`) will pass, and React will **not** be instructed to re-render the component. This is the essence of zero-overhead state management.

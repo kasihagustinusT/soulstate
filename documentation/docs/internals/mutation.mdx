@@ -1,0 +1,70 @@
+---
+title: State Mutation and Structural Sharing
+sidebar_label: Mutation
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import { Admonition } from '@site/src/components/Admonition';
+
+# Internals: State Mutation and Structural Sharing
+
+In SoulState, the term "mutation" refers to the process of changing the store's state. However, it's crucial to understand that SoulState strictly adheres to **immutability**. This means that state is never directly modified; instead, new state objects are created with the desired changes. This approach, combined with structural sharing, is fundamental to SoulState's performance and predictability.
+
+## Immutability: The Core Principle
+
+Whenever you call `store.set()`, SoulState does not alter the existing `state` object. Instead, it constructs a *new* state object that incorporates your updates.
+
+<CodeBlock language="typescript">
+{`// Inside store.set()
+const nextState = { ...state, ...(partialState as Partial<T>) };
+state = nextState; // 'state' now points to a new object
+`}
+</CodeBlock>
+
+### Why Immutability?
+
+1.  **Predictability**: Immutable state makes your application easier to reason about. You always know that a state object, once created, will never change.
+2.  **Simplified Change Detection**: Comparing two objects for equality becomes as simple as comparing their references. If `oldState !== newState`, something has changed.
+3.  **Time-Travel Debugging**: While not built into the core, immutability is a prerequisite for advanced features like time-travel debugging, as it allows you to easily revert to previous state snapshots.
+4.  **Concurrency Safety**: In concurrent environments (like React's concurrent mode), immutable data structures prevent race conditions and unexpected side effects.
+
+<Admonition type="danger" title="Avoid Direct State Mutation">
+  <p>Directly modifying the state object (e.g., <code>state.user.name = 'New Name'</code>) will bypass SoulState's change detection mechanisms. This will lead to stale UI, unexpected behavior, and make debugging extremely difficult. Always use <code>store.set()</code> to update state.</p>
+</Admonition>
+
+## Structural Sharing: An Optimization
+
+Structural sharing is an optimization technique where, when a new version of a data structure is created, parts that are unchanged are "shared" (referenced) from the old version rather than being copied. SoulState implements this at a shallow level within its `set` function.
+
+Before creating `nextState`, SoulState performs a quick check to see if any of the values in the `partialState` are actually different from the current `state`.
+
+<CodeBlock language="typescript">
+{`// Inside store.set()
+let hasChanged = false;
+const updatedKeys = Object.keys(partialState);
+for (let i = 0; i < updatedKeys.length; i++) {
+  const key = updatedKeys[i] as keyof T;
+  // Object.is is used for fast, shallow comparison
+  if (!Object.is(state[key], (partialState as T)[key])) {
+    hasChanged = true;
+    break;
+  }
+}
+
+if (!hasChanged) {
+  return; // No actual change, so we bail out early, avoiding new object creation.
+}
+
+// Only if something truly changed, create a new object
+const nextState = { ...state, ...(partialState as Partial<T>) };
+state = nextState;
+`}
+</CodeBlock>
+
+### Benefits of Structural Sharing
+
+1.  **Reduced Memory Footprint**: By reusing unchanged parts of the state, less new memory needs to be allocated, reducing overall memory consumption.
+2.  **Lower Garbage Collection Overhead**: Fewer new objects mean less work for the JavaScript engine's garbage collector, leading to fewer and shorter GC pauses and a smoother user experience.
+3.  **Performance for Selectors**: When selectors are run, if a part of the state hasn't changed, its reference will be the same. This allows for very fast equality checks (`Object.is`) and prevents unnecessary re-renders in subscribed components.
+
+In essence, SoulState's mutation strategy is a carefully balanced approach: strict immutability for predictability and robust change detection, combined with shallow structural sharing for optimal performance and resource utilization.

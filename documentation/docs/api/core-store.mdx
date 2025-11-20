@@ -1,0 +1,127 @@
+---
+title: Core Store API
+sidebar_label: createStore
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import { Admonition } from '@site/src/components/Admonition';
+
+# API: `createStore`
+
+This section covers the central `createStore` function, which is the entry point for creating and managing state in SoulState.
+
+## `createStore`
+
+The `createStore` function creates a new store instance. This instance holds your state and provides methods to interact with it. In React applications, you'll typically define a store as a hook-like constant (e.g., `useMyStore`).
+
+### Signature
+
+<CodeBlock language="typescript">
+{`type StateCreator<T> = (
+  set: (updater: Partial<T> | ((state: T) => Partial<T> | T)) => void,
+  get: () => T,
+  api: Store<T>
+) => T;
+
+function createStore<T extends object>(
+  initializer: StateCreator<T>
+): Store<T>;
+`}
+</CodeBlock>
+
+- **`initializer`**: A function that creates your state.
+- It receives `set`, `get`, and the `api` instance itself.
+- It must return the initial state object, including any action functions.
+
+### Return Value: `Store<T>`
+
+`createStore` returns a `Store` object. While you'll primarily use the `useStore` hook to interact with it in React, the store object itself has three key methods for use in non-React environments or for advanced integrations.
+
+<CodeBlock language="typescript">
+{`export interface Store<T> {
+  get: () => T;
+  set: (updater: StateUpdater<T>) => void;
+  subscribe: <S>(
+    selector: (state: T) => S,
+    listener: (selectedState: S, prevSelectedState: S) => void,
+    options?: { equalityFn?: (a: S, b: S) => boolean }
+  ) => () => void;
+}
+`}
+</CodeBlock>
+
+---
+
+## Store Methods
+
+### `store.get()`
+
+Returns the current state of the store at the time of calling.
+
+- **Signature**: `() => T`
+- **Behavior**: This method provides a direct, non-reactive snapshot of the state. It does **not** create a subscription and will not cause a component to re-render. It is ideal for one-off reads inside event handlers or effects.
+
+<CodeBlock language="typescript">
+{`import { useBearStore } from './store';
+
+function handleSomeEvent() {
+  // Get the current number of bears without subscribing to changes.
+  const currentBears = useBearStore.get().bears;
+  console.log('We have ' + currentBears + ' bears right now.');
+}
+`}
+</CodeBlock>
+
+### `store.set()`
+
+Updates the store's state by merging a partial state object. This is the primary way to modify state.
+
+- **Signature**: `(updater: Partial<T> | ((state: T) => Partial<T> | T)) => void`
+- **Behavior**: Calling `set` triggers the update process. All updates are automatically batched using a microtask. Subscribers will be notified with the final state after all `set` calls in the current event loop tick have completed.
+
+**Object Update:**
+<CodeBlock language="typescript">
+{`// Sets the 'bears' count to 5, leaving other state untouched.
+useBearStore.set({ bears: 5 });
+`}
+</CodeBlock>
+
+**Functional Update:**
+<CodeBlock language="typescript">
+{`// Recommended for updates that depend on the current state.
+useBearStore.set((state) => ({ bears: state.bears + 1 }));
+`}
+</CodeBlock>
+
+### `store.subscribe()`
+
+Subscribes to changes in a selected part of the state. This is the low-level method that powers the `useStore` hook.
+
+- **Signature**: `<S>(selector, listener, options) => () => void`
+- **Returns**: An `unsubscribe` function to tear down the subscription.
+
+**Parameters:**
+- `selector: (state: T) => S`: A function to select a slice of state to watch.
+- `listener: (selectedState: S, prevSelectedState: S) => void`: A callback that fires only when the selected state has changed. It receives the new and previous values of the selected state.
+- `options.equalityFn?: (a: S, b: S) => boolean`: An optional function to compare the previous and new selected state. Defaults to `Object.is`. The listener is only called if this function returns `false`.
+
+<CodeBlock language="typescript">
+{`// Subscribe to just the 'bears' property
+const unsubscribe = useBearStore.subscribe(
+  (state) => state.bears,
+  (newBears, oldBears) => {
+    console.log('Bears count changed from ' + oldBears + ' to ' + newBears);
+  }
+);
+
+// Trigger the subscription
+useBearStore.set({ bears: 10 });
+
+// Later, to prevent memory leaks
+unsubscribe();
+`}
+</CodeBlock>
+
+<Admonition type="info" title="React Usage">
+  <p>In React, you should always prefer the <code>useStore</code> hook over <code>store.subscribe()</code>. <code>useStore</code> is specifically designed to handle component lifecycles and integrate with React's rendering engine correctly.</p>
+</Admonition>

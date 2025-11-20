@@ -1,0 +1,85 @@
+---
+title: Comparison with Zustand Internals
+sidebar_label: Zustand Comparison
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import { Admonition } from '@site/src/components/Admonition';
+
+# Internals: Comparison with Zustand
+
+Zustand is a popular, minimalist state management library that shares many philosophical similarities with SoulState. Both aim for a simple API, high performance, and a focus on developer experience. This document delves into the internal similarities and subtle differences that set SoulState apart.
+
+## Shared Philosophy
+
+Both SoulState and Zustand embrace:
+
+-   **Minimalism**: Small API surface, no boilerplate.
+-   **Immutability**: State updates create new objects.
+-   **Selector-driven rendering**: Components re-render only when selected data changes.
+-   **Automatic Batching**: Multiple updates coalesce into a single render.
+-   **`useSyncExternalStore`**: Leveraging React's official API for external stores.
+
+In many ways, SoulState can be seen as a highly optimized, performance-focused iteration on the core ideas popularized by Zustand.
+
+## Key Internal Differences
+
+While the external API might feel familiar, SoulState introduces specific optimizations at the internal level:
+
+### 1. Subscription Management: Doubly Linked List
+
+-   **Zustand**: Typically uses a `Set` or an array to manage subscribers. While `Set` offers O(1) average time complexity for add/delete, it still involves some overhead.
+-   **SoulState**: Employs a **doubly linked list** for its subscription manager. This guarantees **O(1)** time complexity for both adding and removing subscribers, making it exceptionally efficient for dynamic UIs with frequent component mounts and unmounts. This is a subtle but significant optimization for large-scale applications.
+
+<CodeBlock language="typescript">
+{`// SoulState's SubscriptionNode structure
+interface SubscriptionNode<T, S> {
+  selector: (state: T) => S;
+  listener: (selectedState: S, prevSelectedState: S) => void;
+  equalityFn: (a: S, b: S) => boolean;
+  lastState: S;
+  prev: SubscriptionNode<T, any> | null;
+  next: SubscriptionNode<T, any> | null;
+}
+`}
+</CodeBlock>
+
+### 2. Microtask Batching Implementation
+
+-   **Zustand**: Uses `queueMicrotask` for batching, similar to SoulState. However, the exact implementation details and how `isNotificationScheduled` flags are managed can differ.
+-   **SoulState**: Explicitly manages a `isNotificationScheduled` flag and `lastKnownState` to ensure that `notifySubscribers` is called exactly once per microtask, and that the `subscriptionManager.notify` receives the correct `prevState` for accurate change detection.
+
+### 3. Structural Sharing Optimization in `set`
+
+-   **Zustand**: Its `set` function also promotes immutability and often uses object spreading.
+-   **SoulState**: Implements an explicit pre-check within `set` to determine if any actual value has changed before creating a new state object. If `Object.is` determines no change for any key in the `partialState`, the `set` operation is short-circuited, preventing unnecessary object allocations and reducing garbage collection pressure.
+
+<CodeBlock language="typescript">
+{`// SoulState's pre-check in set()
+let hasChanged = false;
+const updatedKeys = Object.keys(partialState);
+for (let i = 0; i < updatedKeys.length; i++) {
+  const key = updatedKeys[i] as keyof T;
+  if (!Object.is(state[key], (partialState as T)[key])) {
+    hasChanged = true;
+    break;
+  }
+}
+
+if (!hasChanged) {
+  return; // Bail out early if no actual change
+}
+`}
+</CodeBlock>
+
+## When to Choose SoulState over Zustand?
+
+While both are excellent choices, SoulState's specific internal optimizations make it particularly compelling for:
+
+-   **Extreme Performance Scenarios**: Applications where every millisecond counts, and minimizing re-renders and garbage collection is paramount.
+-   **Large-Scale Applications**: Where the sheer number of components and subscriptions can expose the O(1) benefits of the linked list.
+-   **Deep Dive into Internals**: Developers who appreciate a highly transparent and optimized core.
+
+<Admonition type="info" title="SoulState: A Performance-Focused Evolution">
+  <p>SoulState can be viewed as a performance-focused evolution of the minimalist state management paradigm. It takes proven concepts and refines them with specific, low-level optimizations to deliver an even higher degree of efficiency.</p>
+</Admonition>

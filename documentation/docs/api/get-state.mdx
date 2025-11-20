@@ -1,0 +1,111 @@
+---
+title: "API: getState()"
+sidebar_label: getState()
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import { Admonition } from '@site/src/components/Admonition';
+
+# API: `store.getState()`
+
+The `store.getState()` method provides a direct way to access the current state of a SoulState store. It is primarily used for non-reactive reads, typically outside of React components or within actions where you need a snapshot of the current state without triggering re-renders.
+
+## Summary
+
+`store.getState()` returns the current state object held by the store. It is a synchronous, non-reactive operation.
+
+## Function Signature
+
+<CodeBlock language="typescript">
+{`interface Store<T> {
+  getState: () => T;
+  // ... other methods
+}
+`}
+</CodeBlock>
+
+## Parameters
+
+None.
+
+## Return Values
+
+-   `T`: The current state object of the store.
+
+## Usage Examples
+
+### Basic Usage: Reading State Outside React
+
+You can call `getState()` directly on your store instance to get its current value.
+
+<CodeBlock language="typescript">
+{`import { useCounterStore } from '../stores/counterStore'; // Assuming you have a counter store
+
+const currentCount = useCounterStore.getState().count;
+console.log('Current count:', currentCount); // Output: Current count: 0 (or whatever it is)
+`}
+</CodeBlock>
+
+### Advanced Usage: Within Actions
+
+`getState()` is often used within your store's actions (defined in the `createStore` initializer) to derive new state based on the current state.
+
+<CodeBlock language="typescript">
+{`import { createStore } from 'soulstate';
+
+interface TodoState {
+  todos: { id: number; text: string; completed: boolean }[];
+  addTodo: (text: string) => void;
+  toggleAll: () => void;
+}
+
+export const useTodoStore = createStore<TodoState>((set, get) => ({
+  todos: [],
+  addTodo: (text) => {
+    set(state => ({
+      todos: [...state.todos, { id: Date.now(), text, completed: false }]
+    }));
+  },
+  toggleAll: () => {
+    const currentTodos = get().todos; // Get current state non-reactively
+    const allCompleted = currentTodos.every(todo => todo.completed);
+    set(state => ({
+      todos: state.todos.map(todo => ({ ...todo, completed: !allCompleted }))
+    }));
+  },
+}));
+`}
+</CodeBlock>
+
+## Anti-patterns
+
+### 1. Using `getState()` for Reactive UI Updates
+
+Never use `store.getState()` directly in a React component's render logic if you expect the component to re-render when the state changes. `getState()` is non-reactive. For reactive updates, always use the `useStore` hook.
+
+<CodeBlock language="tsx">
+{`// ❌ Anti-pattern: This component will NOT update when count changes
+function MyComponent() {
+  const count = useCounterStore.getState().count; // Stale value
+  return <div>Count: {count}</div>;
+}
+
+// ✅ Correct: Use useStore hook for reactive updates
+import { useStore } from 'soulstate/react';
+function MyReactiveComponent() {
+  const count = useStore(useCounterStore, state => state.count);
+  return <div>Count: {count}</div>;
+}
+`}
+</CodeBlock>
+
+## Performance Notes
+
+`store.getState()` is an extremely fast, O(1) operation. It simply returns a reference to the current state object. It involves no subscriptions, no change detection, and no re-renders.
+
+## Common Mistakes
+
+-   Forgetting that `getState()` is non-reactive and expecting UI updates.
+-   Calling `getState()` excessively within a tight loop when a single read would suffice.
+
+`store.getState()` is a powerful tool for accessing the current state directly, especially within actions or for one-off reads. For any reactive UI updates, always defer to the `useStore` hook.

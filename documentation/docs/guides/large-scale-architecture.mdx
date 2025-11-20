@@ -1,0 +1,144 @@
+---
+title: Large-Scale State Architecture
+sidebar_label: Large-Scale Architecture
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import { Admonition } from '@site/src/components/Admonition';
+
+# Guides: Large-Scale State Architecture with SoulState
+
+Building large-scale applications presents unique challenges for state management. SoulState, with its performance-first design and flexible API, provides a solid foundation. This guide outlines architectural patterns and considerations for managing state effectively in complex, enterprise-grade applications.
+
+## Principles for Large-Scale Applications
+
+1.  **Modularity**: Break down state into small, independent, and reusable units.
+2.  **Clear Ownership**: Each piece of state should have a single, well-defined owner (its store).
+3.  **Explicit Dependencies**: State interactions between different modules should be clear and intentional.
+4.  **Performance by Default**: Leverage SoulState's core optimizations (selectors, batching, O(1) subscriptions).
+5.  **Testability**: Design stores and actions to be easily testable in isolation.
+
+## Architectural Patterns
+
+### 1. Domain-Driven Stores
+
+Organize your stores around business domains rather than UI components. This makes your state logic more resilient to UI changes and easier to understand for domain experts.
+
+<CodeBlock language="typescript">
+{`// domain/products/productStore.ts
+export const useProductStore = createStore<ProductState>(...);
+
+// domain/orders/orderStore.ts
+export const useOrderStore = createStore<OrderState>(...);
+
+// domain/notifications/notificationStore.ts
+export const useNotificationStore = createStore<NotificationState>(...);
+`}
+</CodeBlock>
+
+### 2. Feature-Sliced Design
+
+Combine domain-driven stores with a feature-sliced architecture. Each feature (e.g., User Management, Product Catalog, Analytics) can have its own set of stores, components, and services.
+
+```
+src/
+├── features/
+│   ├── user-management/
+│   │   ├── components/
+│   │   ├── stores/userStore.ts
+│   │   └── services/userService.ts
+│   ├── product-catalog/
+│   │   ├── components/
+│   │   ├── stores/productStore.ts
+│   │   └── services/productService.ts
+│   └── shared/
+│       ├── stores/uiStore.ts
+│       └── components/
+├── app/
+├── pages/
+└── ...
+```
+
+### 3. Global vs. Local State
+
+-   **Global State (SoulState)**: Data that needs to be accessed or shared across many components, or that represents core application logic (e.g., authentication, user data, global settings, fetched data).
+-   **Local State (React `useState`/`useReducer`)**: UI-specific state that is only relevant to a single component or a small, isolated subtree (e.g., form input values, modal open/close state, temporary UI flags).
+
+<Admonition type="tip" title="When to use local state?">
+  <p>If a piece of state is only used by one component and doesn't need to be shared or persisted, <code>useState</code> is often the simpler and more appropriate choice.</p>
+</Admonition>
+
+## Advanced Considerations
+
+### Data Normalization
+
+For applications dealing with complex, relational data (e.g., a list of users where each user has multiple posts), consider normalizing your data within your SoulState stores. This means storing entities in a flat structure, referenced by their IDs.
+
+<CodeBlock language="typescript">
+{`interface NormalizedState {
+  users: { [id: string]: User };
+  posts: { [id: string]: Post };
+  // ... other entities
+}
+
+export const useNormalizedStore = createStore<NormalizedState>((set) => ({
+  users: {},
+  posts: {},
+  // ... actions to add/update entities
+}));
+`}
+</CodeBlock>
+
+This pattern helps:
+-   Reduce data duplication.
+-   Simplify updates (update an entity once, and all references are updated).
+-   Improve selector performance.
+
+### Inter-Store Communication
+
+For complex interactions between modular stores:
+
+-   **Direct Action Calls**: One store's action can call another store's action (e.g., `useAuthStore.getState().login().then(...)`).
+-   **Subscriptions**: One store can subscribe to changes in another store using `store.subscribe()` for reactive updates.
+-   **Event Bus (Advanced)**: For very decoupled systems, a lightweight event bus (not part of SoulState core) can be used to dispatch events that multiple stores might listen to.
+
+<Admonition type="caution" title="Manage Dependencies Carefully">
+  <p>When stores interact, be vigilant about circular dependencies. Design your stores to be as independent as possible, and use explicit communication channels.</p>
+</Admonition>
+
+### Server-Side Rendering (SSR) / Server Components
+
+SoulState stores can be hydrated on the client-side with initial state from the server.
+
+1.  **Create a singleton store** on the client.
+2.  **Fetch initial data** in your server component.
+3.  **Pass initial data** to a client component.
+4.  **Hydrate the store** in a `useEffect` hook in the client component.
+
+<CodeBlock language="tsx">
+{`// lib/store.ts (Client-side singleton)
+export const useAppStore = createStore(initialState);
+
+// app/page.tsx (Server Component)
+async function getData() { /* fetch data */ return { user: 'Admin' }; }
+export default async function Page() {
+  const data = await getData();
+  return <ClientWrapper initialData={data} />;
+}
+
+// app/client-wrapper.tsx (Client Component)
+'use client';
+import { useAppStore } from '../lib/store';
+import { useEffect } from 'react';
+export function ClientWrapper({ initialData }) {
+  useEffect(() => {
+    useAppStore.setState(initialData); // Hydrate the store
+  }, [initialData]);
+  // ... render children that use useAppStore
+}
+`}
+</CodeBlock>
+
+## Conclusion
+
+SoulState's minimalist yet powerful design, combined with these architectural patterns, provides a robust and performant foundation for even the most demanding large-scale applications. By focusing on modularity, explicit control, and leveraging SoulState's core optimizations, you can build highly scalable and maintainable state management solutions.

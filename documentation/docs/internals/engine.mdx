@@ -1,0 +1,80 @@
+---
+title: Core Engine Loop
+sidebar_label: Engine
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import { Admonition } from '@site/src/components/Admonition';
+
+# Internals: Core Engine Loop
+
+The SoulState core engine is a lean, efficient loop designed to manage state updates and propagate changes with minimal overhead. It orchestrates the interaction between the store's state, the `set` and `get` methods, and the subscription manager.
+
+## The `createStore` Factory
+
+At its heart, the engine is instantiated by the `createStore` factory function. This function sets up the initial state, the subscription manager, and the core mechanisms for state manipulation and notification.
+
+<CodeBlock language="typescript">
+{`export function createStore<T extends object>(initializer: StateCreator<T>): Store<T> {
+  let state: T; // The current state
+  const subscriptionManager = createSubscriptionManager<T>(); // Manages subscribers
+
+  let isNotificationScheduled = false; // Flag for microtask batching
+  let lastKnownState: T; // Used for change detection during notification
+
+  // Initialize state using the provided initializer function
+  const api: Store<T> = { // Forward declaration for 'api'
+    get: () => state,
+    set: (updater) => { /* ... */ },
+    subscribe: (selector, listener, options) => { /* ... */ }
+  };
+  state = initializer((updater) => api.set(updater), () => api.get(), api);
+  lastKnownState = state; // Initial state for comparison
+
+  // ... (rest of set, subscribe, and notification logic) ...
+
+  return api;
+}
+`}
+</CodeBlock>
+
+## State Management Flow
+
+The core engine loop can be visualized as a continuous cycle of:
+
+1.  **Action Invocation**: An action (e.g., `increasePopulation`) is called, which internally uses `store.set()`.
+2.  **State Update**: `store.set()` calculates the next state, applying structural sharing.
+3.  **Notification Scheduling**: If a change occurred, `store.set()` schedules a notification to run in the microtask queue.
+4.  **Microtask Execution**: The JavaScript event loop picks up the scheduled notification.
+5.  **Subscriber Notification**: The `subscriptionManager` iterates through its linked list of subscribers.
+6.  **Selector & Equality Check**: For each subscriber, its selector runs, and the result is compared with the last known selected state.
+7.  **Listener Invocation**: If the selected state has truly changed, the subscriber's listener (which typically triggers a React re-render) is invoked.
+
+```mermaid
+graph TD
+    A[User Action / API Call] --> B{store.set(updater)};
+    B --> C{Calculate nextState};
+    C -- "State changed?" -->|Yes| D{Schedule notify() in Microtask};
+    C -- "State changed?" -->|No| E[End];
+    D --> F[Microtask Queue];
+    F --> G{Execute notify()};
+    G --> H{subscriptionManager.notify()};
+    H --> I{Iterate Subscribers};
+    I --> J{Run Selector & Equality Check};
+    J -- "Selected state changed?" -->|Yes| K[Invoke Listener (e.g., React re-render)];
+    J -- "Selected state changed?" -->|No| L[Skip Listener];
+    K --> M[UI Updates];
+    L --> I;
+    M --> E;
+    E --> A;
+```
+
+## Key Engine Principles
+
+-   **Single Source of Truth**: The `state` variable within the `createStore` closure is the definitive current state.
+-   **Immutability**: All state updates create new state objects. Direct mutation is strictly avoided to ensure predictable change detection.
+-   **Microtask-based Batching**: Ensures that all `set` calls within a single event loop tick are coalesced into one notification, preventing UI tearing and optimizing renders.
+-   **Lazy Evaluation**: Selectors are only run during the notification phase, and only for the specific subscribers that need them.
+-   **O(1) Subscription Management**: The underlying linked list ensures that adding and removing subscribers is extremely fast, regardless of the total number of subscriptions.
+
+This tightly integrated loop ensures that SoulState remains highly performant and predictable, even in complex applications with frequent state changes.
