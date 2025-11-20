@@ -12,6 +12,9 @@ permissions:
   pull-requests: write
 
 jobs:
+  # -------------------------------------------------------
+  # 1. BUILD & TEST SOURCE PACKAGE (ROOT)
+  # -------------------------------------------------------
   build-and-test:
     runs-on: ubuntu-latest
 
@@ -23,53 +26,78 @@ jobs:
       - name: Use Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 18
-          cache: npm
-
-      # Prevent Rollup optional dependency issues
-      - name: Clean environment
-        run: |
-          npm cache clean --force
-          rm -rf node_modules package-lock.json
+          node-version: 20
+          cache: 'npm'
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Lint
-        run: npm run lint
+        run: npm run lint --if-present
 
       - name: Type Check
-        run: npm run typecheck
+        run: npm run typecheck --if-present
 
       - name: Test
-        run: npm test
+        run: npm test --if-present
 
-      - name: Build
-        run: npm run build
+      - name: Build package
+        run: npm run build --if-present
 
-  release:
-    needs: build-and-test
+  # -------------------------------------------------------
+  # 2. BUILD DOCUMENTATION (DOCUSAURUS)
+  # -------------------------------------------------------
+  build-docs:
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: build-and-test
+
+    defaults:
+      run:
+        working-directory: documentation
 
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Use Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: documentation/package-lock.json
+
+      - name: Install docs dependencies
+        run: npm ci
+
+      - name: Build Docusaurus
+        run: npm run build
+
+      - name: Upload docs artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docusaurus-build
+          path: documentation/build
+
+  # -------------------------------------------------------
+  # 3. RELEASE (SEMANTIC-RELEASE)
+  # -------------------------------------------------------
+  release:
+    needs: [build-and-test, build-docs]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
 
-      - name: Clean environment
-        run: |
-          npm cache clean --force
-          rm -rf node_modules package-lock.json
-
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Release
         env:

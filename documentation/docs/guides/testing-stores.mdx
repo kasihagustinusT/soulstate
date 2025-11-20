@@ -1,0 +1,229 @@
+---
+title: Testing SoulState Stores
+sidebar_label: Testing Stores
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import { Admonition } from '@site/src/components/Admonition';
+
+# Guides: Testing SoulState Stores
+
+Testing is a crucial part of building robust applications. SoulState stores are designed to be highly testable due to their pure function nature, clear separation of concerns, and lack of tight coupling to React components. This guide will demonstrate how to effectively test your SoulState stores using common testing frameworks like Jest or Vitest.
+
+## Principles of Testing SoulState Stores
+
+1.  **Isolation**: Test your store logic independently of React components.
+2.  **Pure Functions**: Actions within your store should ideally be pure or easily mockable.
+3.  **Deterministic**: Given the same inputs, actions should produce the same outputs.
+4.  **Focus on Behavior**: Test that actions correctly modify state and that selectors return the expected values.
+
+## Setting Up Your Test Environment
+
+You'll typically use a test runner like Jest or Vitest. No special setup is required for SoulState itself.
+
+<CodeBlock language="bash">
+{`npm install --save-dev jest @types/jest # or vitest @types/vitest`}
+</CodeBlock>
+
+## Testing Basic Store Functionality
+
+Let's consider a simple counter store:
+
+<CodeBlock language="typescript">
+{`// stores/counterStore.ts
+import { createStore } from 'soulstate';
+
+interface CounterState {
+  count: number;
+  increment: () => void;
+  decrement: () => void;
+  reset: () => void;
+}
+
+export const useCounterStore = createStore<CounterState>((set) => ({
+  count: 0,
+  increment: () => set((state) => ({ count: state.count + 1 })),
+  decrement: () => set((state) => ({ count: state.count - 1 })),
+  reset: () => set({ count: 0 }),
+}));
+`}
+</CodeBlock>
+
+Now, let's write a test file (`stores/counterStore.test.ts`):
+
+<CodeBlock language="typescript">
+{`import { useCounterStore } from './counterStore';
+
+describe('Counter Store', () => {
+  // Reset the store to its initial state before each test
+  beforeEach(() => {
+    useCounterStore.setState({ count: 0 }); // Directly set state for testing
+  });
+
+  it('should have an initial count of 0', () => {
+    expect(useCounterStore.getState().count).toBe(0);
+  });
+
+  it('should increment the count', () => {
+    useCounterStore.getState().increment();
+    expect(useCounterStore.getState().count).toBe(1);
+  });
+
+  it('should decrement the count', () => {
+    useCounterStore.getState().decrement();
+    expect(useCounterStore.getState().count).toBe(-1);
+  });
+
+  it('should reset the count', () => {
+    useCounterStore.getState().increment(); // count is 1
+    useCounterStore.getState().increment(); // count is 2
+    useCounterStore.getState().reset();
+    expect(useCounterStore.getState().count).toBe(0);
+  });
+
+  it('should handle multiple increments and decrements', () => {
+    useCounterStore.getState().increment(); // 1
+    useCounterStore.getState().increment(); // 2
+    useCounterStore.getState().decrement(); // 1
+    useCounterStore.getState().increment(); // 2
+    expect(useCounterStore.getState().count).toBe(2);
+  });
+});
+`}
+</CodeBlock>
+
+<Admonition type="tip" title="Direct State Manipulation for Testing">
+  <p>For testing purposes, you can directly manipulate the store's state using <code>store.setState(partialState)</code> or <code>store.getState().action()</code>. This allows you to set up specific test scenarios easily.</p>
+</Admonition>
+
+## Testing Asynchronous Actions
+
+Testing async actions involves mocking API calls or other side effects.
+
+<CodeBlock language="typescript">
+{`// stores/userStore.ts
+import { createStore } from 'soulstate';
+
+interface User { id: string; name: string; }
+interface UserState {
+  user: User | null;
+  loading: boolean;
+  error: string | null;
+  fetchUser: (id: string) => Promise<void>;
+}
+
+export const useUserStore = createStore<UserState>((set) => ({
+  user: null,
+  loading: false,
+  error: null,
+  fetchUser: async (id: string) => {
+    set({ loading: true, error: null });
+    try {
+      const response = await fetch('/api/users/' + id);
+      if (!response.ok) throw new Error('Failed to fetch user');
+      const user = await response.json();
+      set({ user, loading: false });
+    } catch (error: any) {
+      set({ error: error.message, loading: false });
+    }
+  },
+}));
+`}
+</CodeBlock>
+
+<CodeBlock language="typescript">
+{`import { useUserStore } from './userStore';
+
+// Mock the global fetch API
+const mockFetch = jest.fn();
+global.fetch = mockFetch;
+
+describe('User Store - Async Actions', () => {
+  beforeEach(() => {
+    useUserStore.setState({ user: null, loading: false, error: null });
+    mockFetch.mockClear();
+  });
+
+  it('should fetch a user successfully', async () => {
+    const mockUser = { id: '1', name: 'Test User' };
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve(mockUser),
+    });
+
+    await useUserStore.getState().fetchUser('1');
+
+    expect(useUserStore.getState().loading).toBe(false);
+    expect(useUserStore.getState().user).toEqual(mockUser);
+    expect(useUserStore.getState().error).toBeNull();
+    expect(mockFetch).toHaveBeenCalledWith('/api/users/1');
+  });
+
+  it('should handle fetch errors', async () => {
+    const errorMessage = 'Network Error';
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      statusText: 'Internal Server Error',
+    });
+
+    await useUserStore.getState().fetchUser('2');
+
+    expect(useUserStore.getState().loading).toBe(false);
+    expect(useUserStore.getState().user).toBeNull();
+    expect(useUserStore.getState().error).toBe('Failed to fetch user'); // Error from our custom check
+  });
+});
+`}
+</CodeBlock>
+
+## Testing Subscriptions
+
+You can also test that listeners are correctly invoked when state changes.
+
+<CodeBlock language="typescript">
+{`import { useCounterStore } from './counterStore';
+
+describe('Counter Store - Subscriptions', () => {
+  beforeEach(() => {
+    useCounterStore.setState({ count: 0 });
+  });
+
+  it('should notify subscribers when count changes', () => {
+    const listener = jest.fn();
+    const unsubscribe = useCounterStore.subscribe(
+      (state) => state.count,
+      listener
+    );
+
+    useCounterStore.getState().increment();
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenCalledWith(1, 0); // newCount, prevCount
+
+    useCounterStore.getState().increment();
+    expect(listener).toHaveBeenCalledTimes(2);
+    expect(listener).toHaveBeenCalledWith(2, 1);
+
+    unsubscribe(); // Clean up subscription
+  });
+
+  it('should not notify subscribers if selected state does not change', () => {
+    const listener = jest.fn();
+    const unsubscribe = useCounterStore.subscribe(
+      (state) => state.count > 0, // Selector returns boolean
+      listener
+    );
+
+    useCounterStore.getState().increment(); // count becomes 1, selector returns true (0 -> 1)
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenCalledWith(true, false);
+
+    useCounterStore.getState().increment(); // count becomes 2, selector still returns true (1 -> 2)
+    expect(listener).toHaveBeenCalledTimes(1); // Listener not called again
+
+    unsubscribe();
+  });
+});
+`}
+</CodeBlock>

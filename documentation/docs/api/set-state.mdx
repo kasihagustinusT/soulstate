@@ -1,0 +1,117 @@
+---
+title: "API: setState()"
+sidebar_label: setState()
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import { Admonition } from '@site/src/components/Admonition';
+
+# API: `store.setState()`
+
+The `store.setState()` method is the **only way** to modify the state of a SoulState store. It is a powerful and optimized function that ensures immutability, triggers batching, and initiates the notification process for subscribers.
+
+## Summary
+
+`store.setState()` updates the store's state by merging a partial state object or by applying a functional updater. It always results in a new state object and triggers a batched notification to all relevant subscribers.
+
+## Function Signature
+
+<CodeBlock language="typescript">
+{`interface Store<T> {
+  setState: (updater: Partial<T> | ((state: T) => Partial<T> | T)) => void;
+  // ... other methods
+}
+
+type StateUpdater<T> = Partial<T> | ((state: T) => Partial<T> | T);
+`}
+</CodeBlock>
+
+## Parameters
+
+-   `updater`: This can be one of two types:
+    1.  **`Partial<T>`**: An object containing the properties you wish to update. These properties will be shallowly merged into the current state.
+    2.  **`(state: T) => Partial<T> | T`**: A function that receives the current state (`state`) as its argument and returns either a `Partial<T>` object or a complete `T` object. This is the recommended approach for updates that depend on the current state.
+
+## Return Values
+
+`store.setState()` does not return any value (`void`).
+
+## Usage Examples
+
+### 1. Updating with a Partial State Object
+
+This is suitable for updates that do not depend on the current state.
+
+<CodeBlock language="typescript">
+{`import { useSettingsStore } from '../stores/settingsStore';
+
+// Set the theme to 'dark'
+useSettingsStore.setState({ theme: 'dark' });
+
+// Update multiple properties
+useSettingsStore.setState({ notificationsEnabled: true, language: 'en' });
+`}
+</CodeBlock>
+
+### 2. Updating with a Functional Updater (Recommended)
+
+This is the preferred method for updates that depend on the current state, as it guarantees you are working with the most up-to-date state value.
+
+<CodeBlock language="typescript">
+{`import { useCounterStore } from '../stores/counterStore';
+
+// Increment the count based on its current value
+useCounterStore.setState((state) => ({ count: state.count + 1 }));
+
+// Toggle a boolean value
+useSettingsStore.setState((state) => ({
+  notificationsEnabled: !state.notificationsEnabled,
+}));
+`}
+</CodeBlock>
+
+## Anti-patterns
+
+### 1. Direct State Mutation
+
+Never directly modify the state object obtained from `getState()` or within a functional updater. Always return a new object.
+
+<CodeBlock language="typescript">
+{`// ❌ Anti-pattern: Direct mutation
+useCounterStore.setState((state) => {
+  state.count++; // This will NOT trigger updates correctly
+  return state; // Returns the mutated original object
+});
+
+// ✅ Correct: Return a new object
+useCounterStore.setState((state) => ({
+  count: state.count + 1,
+}));
+`}
+</CodeBlock>
+
+### 2. Assuming Immediate State Update
+
+`setState()` updates the internal state synchronously, but notifications to subscribers are batched in a microtask. Do not expect `getState()` immediately after `setState()` to reflect the *notified* state if you have complex middleware or derived state logic.
+
+<CodeBlock language="typescript">
+{`useCounterStore.setState({ count: 1 });
+console.log(useCounterStore.getState().count); // Will be 1
+
+// However, if you have middleware that modifies the state further,
+// or if you're observing the state via a subscription,
+// the *notified* state might be different in the next microtask.
+`}
+</CodeBlock>
+
+## Performance Notes
+
+-   `store.setState()` is highly optimized. It performs a shallow comparison of the incoming `partialState` to the current state. If no actual changes are detected, the update is short-circuited, preventing new object allocations and subsequent notifications.
+-   All notifications triggered by `setState()` are automatically batched using `queueMicrotask`, ensuring optimal rendering performance and preventing UI tearing.
+
+## Common Mistakes
+
+-   Mutating state directly instead of returning a new object.
+-   Not using a functional updater when the new state depends on the previous state, which can lead to race conditions in highly concurrent scenarios.
+
+`store.setState()` is the gateway to all state changes in SoulState. Understanding its immutable nature and batching behavior is key to building performant and predictable applications.

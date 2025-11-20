@@ -1,0 +1,155 @@
+---
+title: Practical Performance Tuning
+sidebar_label: Performance Tuning
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import { Admonition } from '@site/src/components/Admonition';
+
+# Guides: Practical Performance Tuning with SoulState
+
+SoulState is designed for high performance out of the box, but even the most optimized tools can benefit from careful usage. This guide provides practical tips and techniques to ensure your SoulState applications run at peak efficiency.
+
+## 1. Optimize Your Selectors
+
+Selectors are the most critical part of SoulState's rendering performance.
+
+### Rule 1: Select Only What You Need
+
+Always extract the smallest possible slice of state required by your component.
+
+<CodeBlock language="tsx">
+{`// ❌ Anti-pattern: Re-renders for any change in 'user' object
+// const user = useStore(useAuthStore, state => state.user);
+
+// ✅ Best Practice: Re-renders only if 'userName' changes
+const userName = useStore(useAuthStore, state => state.user.name);
+`}
+</CodeBlock>
+
+### Rule 2: Use `shallow` for Multiple Properties
+
+When your selector returns a new object containing multiple properties, use `shallow` equality to prevent unnecessary re-renders.
+
+<CodeBlock language="tsx">
+{`import { useStore, shallow } from 'soulstate/react';
+
+// ❌ Anti-pattern: Creates new object, always re-renders
+// const { firstName, lastName } = useStore(useAuthStore, state => ({
+//   firstName: state.user.firstName,
+//   lastName: state.user.lastName
+// }));
+
+// ✅ Best Practice: Only re-renders if firstName or lastName actually change
+const { firstName, lastName } = useStore(
+  useAuthStore,
+  state => ({
+    firstName: state.user.firstName,
+    lastName: state.user.lastName
+  }),
+  shallow
+);
+`}
+</CodeBlock>
+
+### Rule 3: Memoize Expensive Selectors
+
+If a selector performs a computationally intensive operation (e.g., filtering a large array, complex calculations), memoize it using `reselect` or a similar library.
+
+<CodeBlock language="typescript">
+{`import { createSelector } from 'reselect';
+
+const selectAllItems = state => state.items;
+const selectSearchTerm = state => state.searchTerm;
+
+const selectFilteredItems = createSelector(
+  [selectAllItems, selectSearchTerm],
+  (items, searchTerm) => {
+    console.log('Filtering items...'); // This will only run if items or searchTerm change
+    return items.filter(item => item.name.includes(searchTerm));
+  }
+);
+
+// In component: const filteredItems = useStore(useItemStore, selectFilteredItems);
+`}
+</CodeBlock>
+
+<Admonition type="info" title="When to Memoize?">
+  <p>Only memoize selectors that are genuinely expensive. For simple property access, the overhead of memoization can outweigh the benefits.</p>
+</Admonition>
+
+## 2. Ensure Immutability
+
+SoulState relies on immutability for efficient change detection. Any direct mutation of state will bypass SoulState's internal mechanisms, leading to stale UI and unpredictable behavior.
+
+<CodeBlock language="typescript">
+{`// ❌ Anti-pattern: Mutates original array
+// useTodoStore.set(state => { state.todos.push(newTodo); });
+
+// ✅ Best Practice: Creates a new array
+useTodoStore.set(state => ({
+  todos: [...state.todos, newTodo]
+}));
+
+// ❌ Anti-pattern: Mutates original object
+// useUserStore.set(state => { state.user.age++; });
+
+// ✅ Best Practice: Creates a new object
+useUserStore.set(state => ({
+  user: { ...state.user, age: state.user.age + 1 }
+}));
+`}
+</CodeBlock>
+
+## 3. Leverage Automatic Batching
+
+SoulState automatically batches multiple `set` calls within the same microtask. This means you don't need to worry about manual batching in most cases.
+
+<CodeBlock language="typescript">
+{`// Both set calls will result in a single re-render
+useFormStore.set({ firstName: 'John' });
+useFormStore.set({ lastName: 'Doe' });
+`}
+</CodeBlock>
+
+This is particularly beneficial in event handlers where multiple state updates might occur in quick succession.
+
+## 4. Optimize Component Renders
+
+While SoulState optimizes store subscriptions, React component rendering itself can still be a bottleneck.
+
+### Use `React.memo`
+
+Wrap pure functional components that receive props (especially objects or arrays) with `React.memo` to prevent unnecessary re-renders if their props haven't changed.
+
+<CodeBlock language="tsx">
+{`const MyPureComponent = React.memo(({ data }) => {
+  // This component will only re-render if 'data' prop changes reference
+  return <div>{data.value}</div>;
+});
+`}
+</CodeBlock>
+
+### `useCallback` and `useMemo` for Stable References
+
+Ensure that functions and objects passed as props to `React.memo`-wrapped components have stable references using `useCallback` and `useMemo`.
+
+<CodeBlock language="tsx">
+{`function ParentComponent() {
+  const value = useStore(myStore, s => s.value);
+  const handleClick = useCallback(() => { /* ... */ }, []);
+  const memoizedObject = useMemo(() => ({ id: 1, value }), [value]);
+
+  return <ChildComponent onClick={handleClick} data={memoizedObject} />;
+}
+`}
+</CodeBlock>
+
+## 5. Profile Your Application
+
+When performance issues arise, don't guess. Use browser developer tools (React DevTools Profiler, Chrome Performance tab) to identify bottlenecks.
+
+-   **React DevTools Profiler**: Helps identify which components are rendering unnecessarily and how long they take.
+-   **Chrome Performance Tab**: Provides a detailed timeline of JavaScript execution, rendering, and layout, helping you pinpoint expensive operations.
+
+By systematically applying these performance tuning techniques, you can ensure your SoulState applications deliver a fast, fluid, and responsive user experience.

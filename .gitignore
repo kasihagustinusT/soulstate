@@ -1,13 +1,13 @@
 # Dependencies
 /node_modules
 
-# Build output
+# Build outputs
 /dist
-/coverage
 /build
-
-# tsup
+/coverage
 .tsup/
+.docusaurus
+.cache
 
 # Vitest
 *.snap
@@ -21,14 +21,12 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# Local environment variables
+# Env
 .env
+.env.*
 .env.local
-.env.development.local
-.env.test.local
-.env.production.local
 
-# IDE and OS files
+# IDE + System
 .vscode/
 .idea/
 *.suo
@@ -36,3 +34,6 @@ pnpm-debug.log*
 *.njsproj
 *.sln
 .DS_Store
+
+# TypeScript build cache
+*.tsbuildinfo

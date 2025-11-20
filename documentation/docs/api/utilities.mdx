@@ -1,0 +1,116 @@
+---
+title: "API: Utilities"
+sidebar_label: Utilities
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import { Admonition } from '@site/src/components/Admonition';
+
+# API: Utilities
+
+SoulState provides a minimal set of utility functions to enhance state management, particularly for optimizing React component re-renders.
+
+## `shallow`
+
+The `shallow` utility is an equality function designed for performing a shallow comparison of two objects. It is primarily used with the `useStore` hook or `store.subscribe()` when your selector returns a new object containing multiple properties.
+
+## Summary
+
+`shallow` compares the top-level properties of two objects. If all corresponding properties are strictly equal (`Object.is`), it returns `true`; otherwise, it returns `false`.
+
+## Function Signature
+
+<CodeBlock language="typescript">
+{`function shallow<T>(objA: T, objB: T): boolean;
+`}
+</CodeBlock>
+
+## Parameters
+
+-   `objA: T`: The first object to compare.
+-   `objB: T`: The second object to compare.
+
+## Return Values
+
+-   `boolean`: `true` if the objects are shallowly equal, `false` otherwise.
+
+## Usage Examples
+
+### With `useStore` (Recommended)
+
+Use `shallow` as the third argument to `useStore` when your selector creates a new object from multiple state properties.
+
+<CodeBlock language="tsx">
+{`import { useStore, shallow } from 'soulstate/react';
+import { useUserStore } from '../stores/userStore';
+
+function UserDetails() {
+  // Selects user's name and email into a new object
+  const { name, email } = useStore(
+    useUserStore,
+    (state) => ({ name: state.user.name, email: state.user.email }),
+    shallow // Ensures re-render only if name OR email changes
+  );
+
+  return (
+    <div>
+      <p>Name: {name}</p>
+      <p>Email: {email}</p>
+    </div>
+  );
+}
+`}
+</CodeBlock>
+
+### With `store.subscribe()`
+
+You can also use `shallow` with the low-level `store.subscribe()` method.
+
+<CodeBlock language="typescript">
+{`import { useUserStore } from '../stores/userStore';
+import { shallow } from 'soulstate/react';
+
+const unsubscribe = useUserStore.subscribe(
+  (state) => ({ name: state.user.name, email: state.user.email }),
+  (newUser, prevUser) => {
+    console.log('User name or email changed:', newUser, prevUser);
+  },
+  { equalityFn: shallow }
+);
+
+// ... later ...
+unsubscribe();
+`}
+</CodeBlock>
+
+## Anti-patterns
+
+### 1. Using `shallow` for Deeply Nested Objects
+
+`shallow` only compares the top-level properties. If your selector returns an object that contains other objects or arrays, and changes occur within those nested structures, `shallow` will not detect them.
+
+<CodeBlock language="tsx">
+{`// ❌ Anti-pattern: Will NOT detect changes in 'user.address.street'
+const { user } = useStore(
+  useUserStore,
+  state => ({ user: state.user }), // user is an object with nested address object
+  shallow // Only compares top-level properties of 'user'
+);
+
+// If state.user.address.street changes, 'user' reference might not change,
+// and shallow will return true, preventing re-render.
+`}
+</CodeBlock>
+
+For deeply nested objects, you would need a deep equality function (which can be computationally expensive) or, preferably, restructure your state or selectors to avoid deep dependencies.
+
+## Performance Notes
+
+`shallow` is a very efficient comparison function. It iterates through the keys of the objects once. Its performance is `O(k)` where `k` is the number of keys in the object, making it much faster than a deep equality check for most use cases.
+
+## Common Mistakes
+
+-   Using `shallow` when the selector returns a primitive value (e.g., `state => state.count`). `Object.is` is sufficient and slightly faster.
+-   Using `shallow` for deeply nested objects and expecting it to detect changes within those nested structures.
+
+The `shallow` utility is an indispensable tool for optimizing re-renders when selecting multiple properties into a new object, providing a perfect balance between performance and convenience.

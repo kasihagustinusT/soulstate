@@ -1,0 +1,119 @@
+---
+title: "API: subscribe()"
+sidebar_label: subscribe()
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import { Admonition } from '@site/src/components/Admonition';
+
+# API: `store.subscribe()`
+
+The `store.subscribe()` method allows you to listen for changes in a specific part of your SoulState store. This is the low-level mechanism that powers the `useStore` React hook, but it can also be used directly for non-React integrations, logging, or advanced side effects.
+
+## Summary
+
+`store.subscribe()` registers a listener function that will be called whenever the selected slice of state changes. It returns an `unsubscribe` function to clean up the listener.
+
+## Function Signature
+
+<CodeBlock language="typescript">
+{`interface Store<T> {
+  subscribe: <S>(
+    selector: (state: T) => S,
+    listener: (selectedState: S, prevSelectedState: S) => void,
+    options?: { equalityFn?: (a: S, b: S) => boolean }
+  ) => () => void;
+}
+`}
+</CodeBlock>
+
+## Parameters
+
+1.  **`selector: (state: T) => S`**:
+    -   A function that receives the entire store state (`state: T`) and returns a specific slice of that state (`S`).
+    -   The `listener` will only be invoked if the value returned by this `selector` changes.
+
+2.  **`listener: (selectedState: S, prevSelectedState: S) => void`**:
+    -   A callback function that is executed when the `selectedState` (as determined by the `selector` and `equalityFn`) changes.
+    -   It receives two arguments: `selectedState` (the new value) and `prevSelectedState` (the previous value).
+
+3.  **`options?: { equalityFn?: (a: S, b: S) => boolean }`**:
+    -   An optional object to configure the subscription.
+    -   `equalityFn?: (a: S, b: S) => boolean`: A function used to compare the `selectedState` with `prevSelectedState`. If this function returns `true`, the `listener` will *not* be called.
+    -   **Default**: `Object.is` (strict reference equality).
+    -   Commonly used: `shallow` for shallow object comparison.
+
+## Return Values
+
+-   `() => void`: An `unsubscribe` function. Calling this function will remove the registered listener from the store, preventing memory leaks.
+
+## Usage Examples
+
+### Basic Subscription
+
+Listen to changes in a single primitive value.
+
+<CodeBlock language="typescript">
+{`import { useCounterStore } from '../stores/counterStore';
+
+const unsubscribe = useCounterStore.subscribe(
+  (state) => state.count, // Selector: selects the 'count' property
+  (newCount, prevCount) => { // Listener: logs the change
+    console.log('Count changed from ' + prevCount + ' to ' + newCount);
+  }
+);
+
+// Trigger some changes
+useCounterStore.setState((state) => ({ count: state.count + 1 })); // Logs: Count changed from 0 to 1
+
+// Clean up when done
+unsubscribe();
+`}
+</CodeBlock>
+
+### Advanced Subscription with Custom Equality
+
+Use a custom equality function to control when the listener is called.
+
+<CodeBlock language="typescript">
+{`import { useTodoStore } from '../stores/todoStore';
+
+const unsubscribe = useTodoStore.subscribe(
+  (state) => state.todos.length, // Selector: get number of todos
+  (newLength, prevLength) => {
+    console.log('Todo count changed from ' + prevLength + ' to ' + newLength);
+  },
+  {
+    equalityFn: (a, b) => Math.abs(a - b) < 2 // Only notify if change is >= 2
+  }
+);
+`}
+</CodeBlock>
+
+### Subscribing to Multiple Properties
+
+Use `shallow` equality when selecting multiple properties.
+
+<CodeBlock language="typescript">
+{`import { useUserStore } from '../stores/userStore';
+import { shallow } from 'soulstate';
+
+const unsubscribe = useUserStore.subscribe(
+  (state) => ({ name: state.name, email: state.email }), // Selector: returns new object
+  (newUserInfo, prevUserInfo) => {
+    console.log('User info changed');
+  },
+  {
+    equalityFn: shallow // Use shallow comparison for object
+  }
+);
+`}
+</CodeBlock>
+
+<Admonition type="warning" title="Memory Management">
+  <p>Always call the returned <code>unsubscribe</code> function when you no longer need the subscription. This prevents memory leaks, especially in long-running applications.</p>
+</Admonition>
+
+<Admonition type="tip" title="React Alternative">
+  <p>For React components, prefer the <code>useStore</code> hook instead of manual subscriptions. The hook automatically handles subscription cleanup when the component unmounts.</p>
+</Admonition>

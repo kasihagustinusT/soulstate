@@ -1,0 +1,382 @@
+/* =========================================================
+   SOULSTATE VITE-STYLE ULTRA THEME
+   Light Mode Only — Clean / Minimal / Modern
+   ========================================================= */
+
+/* ---------------------------------------------------------
+   1) GLOBAL TOKENS
+   --------------------------------------------------------- */
+:root {
+  /* Brand */
+  --brand-primary: #646cff; /* Vite Blue/Purple accent */
+  --brand-primary-light: #e6e6ff;
+  --brand-primary-dark: #4c4cff;
+
+  /* Surfaces */
+  --surface: #ffffff;
+  --surface-light: #f9f9fb;
+  --surface-variant: #f1f1f5;
+
+  /* Shadows / Elevations */
+  --elevation-0: none;
+  --elevation-1: 0 1px 3px rgba(0,0,0,0.06);
+  --elevation-2: 0 4px 12px rgba(0,0,0,0.08);
+  --elevation-3: 0 8px 24px rgba(0,0,0,0.1);
+
+  /* Motion */
+  --transition-fast: 120ms ease-in-out;
+  --transition-normal: 180ms ease-in-out;
+
+  /* Typography */
+  --font-body: 'Inter', sans-serif;
+  --font-mono: 'Fira Code', monospace;
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.875rem;
+  --font-size-base: 1rem;
+  --font-size-lg: 1.125rem;
+  --font-size-xl: 1.5rem;
+  --font-size-2xl: 2rem;
+
+  --radius-sm: 6px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+}
+
+/* Global body */
+body {
+  font-family: var(--font-body);
+  background: var(--surface);
+  color: #1f1f1f;
+  line-height: 1.6;
+  letter-spacing: 0.2px;
+  scroll-behavior: smooth;
+}
+
+/* ---------------------------------------------------------
+   2) NAVBAR
+   --------------------------------------------------------- */
+.navbar {
+  background: var(--surface) !important;
+  border-bottom: 1px solid rgba(0,0,0,0.06);
+  box-shadow: var(--elevation-0);
+  padding: 0.75rem 1rem;
+}
+
+.navbar__brand {
+  font-weight: 600;
+  font-size: var(--font-size-xl);
+  color: #000 !important;
+}
+
+.navbar__link {
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius-sm);
+  transition: var(--transition-fast);
+}
+
+.navbar__link:hover {
+  background: var(--brand-primary-light);
+  color: var(--brand-primary);
+}
+
+/* ---------------------------------------------------------
+   3) SIDEBAR
+   --------------------------------------------------------- */
+.menu__link {
+  padding: 0.5rem 0.75rem !important;
+  border-radius: var(--radius-sm);
+  transition: var(--transition-fast);
+  font-size: 0.95rem;
+}
+
+.menu__link:hover {
+  background: var(--brand-primary-light);
+}
+
+.menu__link--active {
+  background: var(--brand-primary-light);
+  color: var(--brand-primary) !important;
+  font-weight: 500;
+}
+
+/* ---------------------------------------------------------
+   4) BUTTONS
+   --------------------------------------------------------- */
+.button--primary {
+  background: var(--brand-primary) !important;
+  color: #fff !important;
+  border-radius: var(--radius-md);
+  transition: var(--transition-normal);
+}
+
+.button--primary:hover {
+  background: var(--brand-primary-dark) !important;
+}
+
+.button--secondary {
+  background: var(--surface);
+  border: 1px solid rgba(0,0,0,0.12);
+  border-radius: var(--radius-md);
+  color: #1f1f1f;
+}
+
+.button--secondary:hover {
+  background: var(--surface-variant);
+}
+
+/* ---------------------------------------------------------
+   5) HERO SECTION
+   --------------------------------------------------------- */
+.hero {
+  background: var(--surface);
+  text-align: center;
+  padding: 6rem 1rem;
+}
+
+.hero__title {
+  font-size: var(--font-size-2xl);
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+}
+
+.hero__subtitle {
+  font-size: var(--font-size-lg);
+  font-weight: 400;
+  opacity: 0.8;
+  margin-bottom: 2rem;
+}
+
+/* ---------------------------------------------------------
+   6) CARDS
+   --------------------------------------------------------- */
+.card {
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--elevation-1);
+  transition: var(--transition-normal);
+  padding: 2rem;
+}
+
+.card:hover {
+  box-shadow: var(--elevation-2);
+  transform: translateY(-2px);
+}
+
+/* ---------------------------------------------------------
+   7) BADGES
+   --------------------------------------------------------- */
+.ss-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  font-size: var(--font-size-sm);
+  border-radius: 999px;
+  background: var(--brand-primary-light);
+  color: var(--brand-primary);
+  font-weight: 500;
+}
+
+/* ---------------------------------------------------------
+   8) PILL BUTTON
+   --------------------------------------------------------- */
+.ss-pill {
+  background: var(--brand-primary-light);
+  color: var(--brand-primary);
+  padding: 0.45rem 1rem;
+  border-radius: 999px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: var(--transition-fast);
+}
+
+.ss-pill:hover {
+  background: #e0e0ff;
+}
+
+/* ---------------------------------------------------------
+   9) CODE BLOCKS
+   --------------------------------------------------------- */
+.theme-code-block,
+.codeBlockContainer {
+  font-family: var(--font-mono);
+  border-radius: var(--radius-md);
+  background: #f5f5f7;
+  box-shadow: var(--elevation-1);
+  overflow-x: auto;
+  padding: 1rem;
+}
+
+code {
+  font-size: 0.9rem;
+  color: #1f1f1f;
+}
+
+/* ---------------------------------------------------------
+   10) TABLES
+   --------------------------------------------------------- */
+table.comparison-table {
+  width: 100%;
+  max-width: 1000px;
+  margin: 0 auto 2rem;
+  border-collapse: collapse;
+  table-layout: auto;
+}
+
+table.comparison-table td,
+table.comparison-table th {
+  padding: 14px 18px;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  white-space: normal;
+  word-break: break-word;
+}
+
+table.comparison-table th {
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+table.comparison-table tr {
+  border-bottom: 1px solid rgba(0,0,0,0.07);
+}
+
+table.comparison-table tr:last-child {
+  border-bottom: none;
+}
+
+@media (max-width: 600px) {
+  table.comparison-table {
+    table-layout: fixed;
+  }
+  table.comparison-table td,
+  table.comparison-table th {
+    font-size: 0.82rem;
+    padding: 10px 12px;
+  }
+}
+
+/* ---------------------------------------------------------
+   11) ADMONITIONS
+   --------------------------------------------------------- */
+.admonition {
+  border-radius: var(--radius-md);
+  box-shadow: var(--elevation-1);
+}
+
+.admonition-title {
+  font-weight: 500;
+}
+
+/* ---------------------------------------------------------
+   12) FOOTER
+   --------------------------------------------------------- */
+.footer {
+  background: var(--surface);
+  border-top: 1px solid rgba(0,0,0,0.06);
+  padding: 3rem 1rem;
+}
+
+.footer__links {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(180px, 1fr));
+  gap: 2rem;
+  max-width: 1200px;
+  margin: 0 auto 2rem;
+}
+
+.footer__title {
+  font-size: 1rem;
+  font-weight: 500;
+  margin-bottom: 0.75rem;
+  color: #1f1f1f !important;
+}
+
+.footer__items {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.footer a {
+  color: #1f1f1f !important;
+  text-decoration: none;
+  transition: var(--transition-fast);
+}
+
+.footer a:hover {
+  color: var(--brand-primary) !important;
+}
+
+.footer__bottom {
+  text-align: center;
+  font-size: 0.9rem;
+  opacity: 0.9;
+  color: #1f1f1f !important;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(0,0,0,0.06);
+}
+
+/* MOBILE FOOTER */
+@media (max-width: 900px) {
+  .footer__links {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 480px) {
+  .footer__links {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------------------------------------------------------
+   13) INTERACTIONS
+   --------------------------------------------------------- */
+*:hover {
+  transition: var(--transition-fast);
+}
+
+button:active,
+a:active {
+  opacity: 0.7;
+}
+
+/* ---------------------------------------------------------
+   14) PERFORMANCE METRICS HOMEPAGE
+   --------------------------------------------------------- */
+.performance-metric {
+  background: var(--surface);
+  padding: 1.75rem;
+  text-align: center;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--elevation-1);
+}
+
+.metric-value {
+  font-size: 2rem;
+  font-weight: 500;
+  color: var(--brand-primary);
+}
+
+.metric-label {
+  font-size: 0.9rem;
+  opacity: 0.8;
+}
+
+/* ---------------------------------------------------------
+   15) RESPONSIVENESS GENERAL
+   --------------------------------------------------------- */
+@media (max-width: 768px) {
+  .hero {
+    padding: 4rem 1rem;
+  }
+
+  .card {
+    padding: 1.5rem;
+  }
+
+  .metric-value {
+    font-size: 1.5rem;
+  }
+}
