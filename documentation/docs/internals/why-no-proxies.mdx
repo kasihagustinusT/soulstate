@@ -6,42 +6,184 @@ sidebar_label: No Proxies
 import CodeBlock from '@theme/CodeBlock';
 import { Admonition } from '@site/src/components/Admonition';
 
-# Internals: Why SoulState Avoids Proxies
+# Why SoulState Avoids Proxies
 
-Modern state management libraries often leverage JavaScript Proxies (e.g., Valtio, Immer's draft state). While powerful, SoulState deliberately chooses not to use Proxies in its core implementation. This decision is rooted in a philosophy of explicit control, predictable performance, and broad compatibility.
+Modern state management libraries often leverage JavaScript Proxies for automatic dependency tracking. While powerful, SoulState deliberately chooses a different path based on explicit selectors and immutable updates. This decision is rooted in our philosophy of **predictable performance**, **explicit control**, and **broad compatibility**.
 
-## What are Proxies?
+## The Proxy Approach vs SoulState's Approach
 
-A JavaScript `Proxy` object wraps another object (the "target") and allows you to intercept and customize fundamental operations for that target, such as property lookup, assignment, enumeration, and function invocation.
+<CodeBlock language="typescript">
+{`// ❌ Proxy-based libraries (automatic tracking)
+const state = proxy({ user: { name: 'John' }, posts: [] });
 
-Libraries like Valtio use Proxies to automatically track which parts of the state are being accessed by a component. When that part of the state changes, the component automatically re-renders.
+// Component automatically tracks accessed properties
+function UserComponent() {
+  const userName = useSnapshot(state).user.name;
+  // Re-renders when state.user.name changes
+}
 
-## SoulState's Philosophy: Explicit Control
+// ✅ SoulState (explicit selectors)
+const store = createStore({ user: { name: 'John' }, posts: [] });
 
-SoulState's core design revolves around **explicit selectors** and **immutable updates**.
+// You explicitly define dependencies
+function UserComponent() {
+  const userName = useStore(store, state => state.user.name);
+  // Only re-renders when state.user.name changes
+}`}
+</CodeBlock>
 
--   **Explicit Selectors**: You explicitly define *what* part of the state your component depends on using a selector function (`state => state.someValue`).
--   **Immutable Updates**: You explicitly update state by creating new objects (`set({ someValue: newValue })`).
+## Performance: Predictable vs "Magic"
 
-This explicit approach offers several advantages:
+### SoulState's Predictable Performance
+```typescript
+// O(1) subscription management with linked list
+interface SubscriptionNode<T, S> {
+  selector: (state: T) => S;
+  listener: (selectedState: S, prevSelectedState: S) => void;
+  equalityFn: (a: S, b: S) => boolean; // Usually Object.is (O(1))
+  lastState: S;
+  prev: SubscriptionNode<T, any> | null; // O(1) removal
+  next: SubscriptionNode<T, any> | null; // O(1) addition
+}
+```
 
-1.  **Predictable Performance**: The performance characteristics of selectors and equality checks are well-understood and highly optimized (`Object.is`, `shallow`). There are no hidden performance costs from deep proxy traversals or complex dependency graphs.
-2.  **Clear Dependency Graph**: It's always clear from the code what a component is subscribed to. This aids debugging and reasoning about application flow.
-3.  **No "Magic"**: Developers have full control over when and how re-renders occur, avoiding unexpected behavior that can sometimes arise from implicit dependency tracking.
+### Proxy Performance Concerns
+- **Hidden traversal costs** when accessing nested properties
+- **Memory overhead** from maintaining dependency graphs
+- **Unpredictable re-renders** from implicit tracking
 
-## Downsides of Proxies (for SoulState's goals)
-
-While Proxies offer convenience, they come with trade-offs that conflict with SoulState's design goals:
-
-1.  **Performance Overhead**: While initial access might be O(1), deep traversals of large state objects through proxies can introduce overhead. More importantly, the "magic" of implicit tracking can sometimes lead to components re-rendering for changes they don't truly care about, if the proxy's dependency tracking is too broad.
-2.  **Debugging Complexity**: Debugging issues related to implicit dependency tracking can be challenging. It's harder to pinpoint why a component re-rendered if you don't explicitly define its subscriptions.
-3.  **Compatibility**: Proxies are a relatively newer JavaScript feature. While widely supported in modern browsers, avoiding them ensures broader compatibility, especially in older environments or specific JavaScript runtimes where Proxy implementations might differ or be less optimized.
-4.  **Serialization Issues**: Proxy objects themselves are not directly serializable (e.g., for `localStorage` or `postMessage` to Web Workers) without explicit handling. This can complicate persistence or inter-thread communication.
-
-<Admonition type="info" title="SoulState's Alternative: Optimized Immutability">
-  <p>Instead of Proxies, SoulState relies on highly optimized immutable updates combined with a fast, explicit selector-based subscription model. This provides similar benefits (fine-grained reactivity) without the trade-offs associated with implicit proxy-based tracking.</p>
+<Admonition type="info" title="Real Implementation">
+  <p>SoulState uses a doubly linked list in <code>src/core/subscriptions.ts</code> for O(1) subscription management, avoiding the overhead of proxy dependency graphs.</p>
 </Admonition>
+
+## Debugging: Explicit vs Implicit
+
+### SoulState: Clear Dependency Trail
+```typescript
+// Easy to debug - dependencies are explicit
+const user = useStore(store, state => state.user);
+const posts = useStore(store, state => state.posts);
+const isLoading = useStore(store, state => state.isLoading);
+
+// Console shows exactly what changed:
+// 🔄 Subscription: {user} → {newUser}
+// 🔄 Subscription: {posts} → {newPosts}
+// ✅ No update for isLoading (unchanged)
+```
+
+### Proxy-based: Hidden Dependencies
+```typescript
+// Hard to debug - dependencies are implicit
+const { user, posts, isLoading } = useSnapshot(state);
+
+// Why did it re-render? Which property changed?
+// Debugging requires digging into proxy internals
+```
+
+## Compatibility & Serialization
+
+### SoulState: Universal Compatibility
+```typescript
+// Works everywhere JavaScript works
+const store = createStore(initialState);
+
+// Easy serialization for persistence
+localStorage.setItem('state', JSON.stringify(store.get()));
+
+// Works with Web Workers
+worker.postMessage(store.get());
+```
+
+### Proxy Limitations
+```typescript
+const state = proxy({ user: 'John' });
+
+// ❌ Proxies aren't serializable
+JSON.stringify(state); // "{}" - loses data!
+
+// ❌ Compatibility issues in older environments
+// ❌ Some JavaScript runtimes have limited Proxy support
+```
+
+## The SoulState Alternative: Optimized Immutability
+
+Instead of proxies, SoulState combines three optimized techniques:
+
+### 1. Structural Sharing Optimization
+```typescript
+// In src/core/store.ts - minimizes object creation
+let hasChanged = false;
+const updatedKeys = Object.keys(partialState);
+for (let i = 0; i < updatedKeys.length; i++) {
+  const key = updatedKeys[i] as keyof T;
+  if (!Object.is(state[key], (partialState as T)[key])) {
+    hasChanged = true;
+    break;
+  }
+}
+
+// Only create new object if something actually changed
+if (!hasChanged) return;
+const nextState = { ...state, ...(partialState as Partial<T>) };
+```
+
+### 2. Microtask Batching
+```typescript
+// Batches multiple updates into single notification
+let isNotificationScheduled = false;
+
+const scheduleNotification = () => {
+  if (!isNotificationScheduled) {
+    isNotificationScheduled = true;
+    queueMicrotask(notifySubscribers); // Efficient batching
+  }
+};
+```
+
+### 3. Surgical Selector Subscriptions
+```typescript
+// Each component subscribes only to needed data
+function UserProfile() {
+  const name = useStore(store, state => state.user.name);     // ✅
+  const email = useStore(store, state => state.user.email);   // ✅
+  // ❌ Never re-renders when posts change
+}
+```
+
+## Real-World Impact
+
+### Bundle Size Comparison
+```javascript
+// SoulState core: ~2KB gzipped
+// Proxy-based solutions: ~5-10KB+ (proxy + dependency tracking)
+
+// Better tree-shaking with explicit imports
+import { createStore, useStore } from 'soulstate';
+import { shallow } from 'soulstate/utils';
+```
+
+### Performance in Large Apps
+```typescript
+// With 1000+ components:
+// SoulState: O(1) subscription management scales linearly
+// Proxy-based: Dependency graph maintenance can become O(n²)
+```
+
+<Admonition type="success" title="The SoulState Advantage">
+  <p>By avoiding proxies, SoulState delivers predictable O(1) performance, explicit debugging trails, universal compatibility, and minimal bundle size—without sacrificing the fine-grained updates that make modern state management powerful.</p>
+</Admonition>
+
+## When Proxies Make Sense
+
+Proxies are excellent for:
+- **Developer tools** and debugging utilities
+- **Mutable APIs** where convenience outweighs performance needs
+- **Prototyping** where rapid iteration is key
+
+But for **production state management** where performance, predictability, and compatibility matter most, SoulState's explicit selector approach proves superior.
 
 ## Conclusion
 
-SoulState's choice to avoid Proxies is a deliberate design decision to prioritize explicit control, predictable performance, and broad compatibility. It empowers developers with a clear mental model of state flow and rendering behavior, leading to robust and high-performance applications.
+SoulState's no-proxy architecture isn't about rejecting modern features—it's about choosing the right tool for the job. For building **fast, predictable, and scalable applications**, explicit selectors with optimized immutable updates provide a better foundation than implicit proxy magic.
+
+The result is a state management solution that's **fast by default, clear by design, and reliable everywhere JavaScript runs**.

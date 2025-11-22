@@ -6,150 +6,401 @@ sidebar_label: Performance Tuning
 import CodeBlock from '@theme/CodeBlock';
 import { Admonition } from '@site/src/components/Admonition';
 
-# Guides: Practical Performance Tuning with SoulState
+# Practical Performance Tuning with SoulState
 
-SoulState is designed for high performance out of the box, but even the most optimized tools can benefit from careful usage. This guide provides practical tips and techniques to ensure your SoulState applications run at peak efficiency.
+SoulState is designed for high performance out of the box, but understanding its optimization mechanisms helps you build even faster applications. This guide covers practical techniques to ensure your SoulState apps run at peak efficiency.
 
-## 1. Optimize Your Selectors
+## 1. Optimize Selector Usage
 
-Selectors are the most critical part of SoulState's rendering performance.
+Selectors are the foundation of SoulState's performance. Proper usage ensures components only re-render when necessary.
 
-### Rule 1: Select Only What You Need
-
-Always extract the smallest possible slice of state required by your component.
+### Select Minimal Data
+Always extract the smallest possible slice of state needed by your component.
 
 <CodeBlock language="tsx">
-{`// ❌ Anti-pattern: Re-renders for any change in 'user' object
-// const user = useStore(useAuthStore, state => state.user);
+{`// ❌ Anti-pattern: Re-renders for any user change
+// const user = useStore(userStore, state => state.user);
 
-// ✅ Best Practice: Re-renders only if 'userName' changes
-const userName = useStore(useAuthStore, state => state.user.name);
-`}
+// ✅ Best Practice: Re-renders only when name changes
+const userName = useStore(userStore, state => state.user.name);
+
+// ✅ Better: For user profile display
+const { name, avatar } = useStore(userStore, state => ({
+  name: state.user.name,
+  avatar: state.user.avatar
+}));`}
 </CodeBlock>
 
-### Rule 2: Use `shallow` for Multiple Properties
-
-When your selector returns a new object containing multiple properties, use `shallow` equality to prevent unnecessary re-renders.
+### Use `shallow` for Object Selections
+When selectors return new objects, use `shallow` equality to prevent unnecessary re-renders.
 
 <CodeBlock language="tsx">
-{`import { useStore, shallow } from 'soulstate/react';
+{`import { useStore } from 'soulstate/react';
+import { shallow } from 'soulstate/utils';
 
-// ❌ Anti-pattern: Creates new object, always re-renders
-// const { firstName, lastName } = useStore(useAuthStore, state => ({
-//   firstName: state.user.firstName,
-//   lastName: state.user.lastName
-// }));
+// ❌ Anti-pattern: Always re-renders (new object every time)
+const userData = useStore(userStore, state => ({
+  name: state.user.name,
+  email: state.user.email
+}));
 
-// ✅ Best Practice: Only re-renders if firstName or lastName actually change
-const { firstName, lastName } = useStore(
-  useAuthStore,
+// ✅ Best Practice: Only re-renders when name or email actually change
+const userData = useStore(
+  userStore,
   state => ({
-    firstName: state.user.firstName,
-    lastName: state.user.lastName
+    name: state.user.name,
+    email: state.user.email
   }),
-  shallow
-);
-`}
+  shallow  // Uses shallow comparison
+);`}
 </CodeBlock>
 
-### Rule 3: Memoize Expensive Selectors
-
-If a selector performs a computationally intensive operation (e.g., filtering a large array, complex calculations), memoize it using `reselect` or a similar library.
+### Memoize Expensive Selectors
+For computationally intensive operations, memoize selectors to avoid redundant calculations.
 
 <CodeBlock language="typescript">
-{`import { createSelector } from 'reselect';
+{`// utils/memoize.ts
+export function memoize<T extends (...args: any[]) => any>(fn: T): T {
+  const cache = new Map();
+  return ((...args: any[]) => {
+    const key = JSON.stringify(args);
+    if (cache.has(key)) return cache.get(key);
+    const result = fn(...args);
+    cache.set(key, result);
+    return result;
+  }) as T;
+}
 
-const selectAllItems = state => state.items;
-const selectSearchTerm = state => state.searchTerm;
+// stores/productSelectors.ts
+export const productSelectors = {
+  getExpensiveProducts: memoize((state: ProductState, minPrice: number) => {
+    // Expensive filtering operation
+    return Array.from(state.products.values())
+      .filter(product => product.price >= minPrice)
+      .sort((a, b) => b.price - a.price);
+  }),
 
-const selectFilteredItems = createSelector(
-  [selectAllItems, selectSearchTerm],
-  (items, searchTerm) => {
-    console.log('Filtering items...'); // This will only run if items or searchTerm change
-    return items.filter(item => item.name.includes(searchTerm));
-  }
-);
+  getProductStats: memoize((state: ProductState) => {
+    const products = Array.from(state.products.values());
+    return {
+      total: products.length,
+      averagePrice: products.reduce((sum, p) => sum + p.price, 0) / products.length,
+      expensiveCount: products.filter(p => p.price > 100).length
+    };
+  })
+};
 
-// In component: const filteredItems = useStore(useItemStore, selectFilteredItems);
-`}
+// Component usage
+function ProductStats() {
+  const stats = useStore(productStore, productSelectors.getProductStats);
+  const expensiveProducts = useStore(
+    productStore, 
+    state => productSelectors.getExpensiveProducts(state, 100)
+  );
+  
+  return <div>Expensive: {expensiveProducts.length}</div>;
+}`}
 </CodeBlock>
 
-<Admonition type="info" title="When to Memoize?">
-  <p>Only memoize selectors that are genuinely expensive. For simple property access, the overhead of memoization can outweigh the benefits.</p>
+## 2. Structural Sharing Optimization
+
+SoulState automatically optimizes state updates by checking for actual changes before creating new objects.
+
+### How SoulState's Change Detection Works
+<CodeBlock language="typescript">
+{`// From src/core/store.ts - SoulState's internal optimization
+const set = (updater: StateUpdater<T>) => {
+  const partialState = typeof updater === 'function'
+    ? updater(state)
+    : updater;
+
+  // Check if any value actually changed
+  let hasChanged = false;
+  const updatedKeys = Object.keys(partialState);
+  for (let i = 0; i < updatedKeys.length; i++) {
+    const key = updatedKeys[i] as keyof T;
+    if (!Object.is(state[key], (partialState as T)[key])) {
+      hasChanged = true;
+      break;
+    }
+  }
+
+  // Only create new object if something actually changed
+  if (!hasChanged) return;
+  
+  const nextState = { ...state, ...(partialState as Partial<T>) };
+  state = nextState;
+  scheduleNotification();
+};`}
+</CodeBlock>
+
+### Leverage This Optimization
+<CodeBlock language="typescript">
+{`// ✅ SoulState automatically skips updates when values don't change
+userActions.updateProfile = (updates: Partial<UserProfile>) => {
+  // If updates don't actually change anything, no re-renders occur
+  userStore.set(state => ({
+    user: { ...state.user, ...updates }
+  }));
+};
+
+// Example: This won't cause re-renders if user.name is already 'John'
+userActions.updateProfile({ name: 'John' });`}
+</CodeBlock>
+
+## 3. Microtask Batching Benefits
+
+SoulState batches multiple updates using `queueMicrotask`, ensuring optimal rendering performance.
+
+### Automatic Batching in Action
+<CodeBlock language="typescript">
+{`// All these updates result in a single re-render
+const formActions = {
+  submitForm: (formData: FormData) => {
+    // All set calls in the same microtask are batched
+    formStore.set({ data: formData });
+    formStore.set({ submitted: true });
+    formStore.set({ lastSubmitted: new Date() });
+    formStore.set({ loading: false });
+    
+    // Results in ONE re-render with all changes applied
+  }
+};
+
+// Even in event handlers with multiple stores
+const handleUserAction = () => {
+  userStore.set({ lastActivity: new Date() });
+  analyticsStore.set(state => ({ eventCount: state.eventCount + 1 }));
+  uiStore.set({ buttonClicked: true });
+  // Still only one re-render per store
+};`}
+</CodeBlock>
+
+## 4. Optimize Component Architecture
+
+### Use Row-Level Components for Lists
+<CodeBlock language="tsx">
+{`// ✅ Good: Row-level subscriptions
+function ProductList() {
+  // Only subscribe to product IDs
+  const productIds = useStore(
+    productStore, 
+    state => Array.from(state.products.keys())
+  );
+
+  return (
+    <div>
+      {productIds.map(id => (
+        <ProductRow key={id} productId={id} />
+      ))}
+    </div>
+  );
+}
+
+// Each row subscribes only to its data
+function ProductRow({ productId }: { productId: string }) {
+  const product = useStore(
+    productStore,
+    state => state.products.get(productId)
+  );
+
+  return <div>{product?.name}</div>;
+}`}
+</CodeBlock>
+
+### Multiple Fine-grained Subscriptions
+<CodeBlock language="tsx">
+{`// ✅ Better than combined object selection
+function UserDashboard() {
+  const name = useStore(userStore, state => state.user.name);
+  const email = useStore(userStore, state => state.user.email);
+  const theme = useStore(uiStore, state => state.theme);
+  
+  // Each subscription updates independently
+  return (
+    <div className={theme}>
+      <h1>{name}</h1>
+      <p>{email}</p>
+    </div>
+  );
+}`}
+</CodeBlock>
+
+## 5. Data Structure Optimization
+
+### Use Maps for Large Datasets
+<CodeBlock language="typescript">
+{`// ✅ Good: Maps for efficient lookups and updates
+export const productStore = createStore({
+  products: new Map<string, Product>(),  // O(1) lookups
+  categories: new Set<string>()          // O(1) membership checks
+});
+
+export const productActions = {
+  updateProduct: (id: string, updates: Partial<Product>) => {
+    productStore.set(state => {
+      const product = state.products.get(id);
+      if (!product) return state;
+      
+      const updatedProduct = { ...product, ...updates };
+      return {
+        products: new Map(state.products).set(id, updatedProduct)
+      };
+    });
+  },
+  
+  // Efficient batch updates
+  updateMultipleProducts: (updates: Array<{ id: string; changes: Partial<Product> }>) => {
+    productStore.set(state => {
+      const newProducts = new Map(state.products);
+      
+      updates.forEach(({ id, changes }) => {
+        const existing = newProducts.get(id);
+        if (existing) {
+          newProducts.set(id, { ...existing, ...changes });
+        }
+      });
+      
+      return { products: newProducts };
+    });
+  }
+};`}
+</CodeBlock>
+
+## 6. Memory Optimization
+
+### Avoid Storing Large Objects
+<CodeBlock language="typescript">
+{`// ❌ Avoid: Storing large binary data in stores
+export const fileStore = createStore({
+  largeFile: null as ArrayBuffer | null  // Can cause memory issues
+});
+
+// ✅ Better: Store references and manage large data separately
+export const fileStore = createStore({
+  fileMetadata: null as { id: string; size: number; url: string } | null,
+  // Store metadata only, not the actual file content
+});`}
+</CodeBlock>
+
+### Clean Up Subscriptions
+<CodeBlock language="tsx">
+{`// ✅ Proper subscription cleanup
+function RealTimeData({ dataId }: { dataId: string }) {
+  useEffect(() => {
+    const unsubscribe = dataStore.subscribe(
+      state => state.realTimeData.get(dataId),
+      (newData, oldData) => {
+        // Handle real-time updates
+      }
+    );
+    
+    return unsubscribe; // Important for memory management
+  }, [dataId]);
+  
+  return <div>Real-time component</div>;
+}`}
+</CodeBlock>
+
+## 7. Performance Monitoring
+
+### Use React DevTools Profiler
+<CodeBlock language="tsx">
+{`// Look for unnecessary re-renders in React DevTools
+function UserProfile() {
+  const user = useStore(userStore, state => state.user);
+  const theme = useStore(uiStore, state => state.theme);
+  
+  // In DevTools Profiler, check if this component
+  // re-renders when only theme changes but user doesn't
+  
+  return (
+    <div className={theme}>
+      <h1>{user.name}</h1>
+    </div>
+  );
+}`}
+</CodeBlock>
+
+### Custom Performance Monitoring
+<CodeBlock language="typescript">
+{`// Add performance logging for critical actions
+export const monitoredActions = {
+  criticalOperation: async (data: any) => {
+    const startTime = performance.now();
+    
+    try {
+      await someCriticalAction(data);
+    } finally {
+      const duration = performance.now() - startTime;
+      if (duration > 100) { // Log if operation takes >100ms
+        console.warn(\`Critical operation took \${duration.toFixed(2)}ms\`);
+      }
+    }
+  }
+};`}
+</CodeBlock>
+
+## 8. Advanced Optimization Patterns
+
+### Lazy Store Initialization
+<CodeBlock language="typescript">
+{`// Initialize heavy stores only when needed
+let heavyStore: ReturnType<typeof createStore> | null = null;
+
+export const getHeavyStore = () => {
+  if (!heavyStore) {
+    heavyStore = createStore({
+      // Heavy initial state or computations
+      largeDataset: initializeLargeDataset()
+    });
+  }
+  return heavyStore;
+};
+
+// Usage in components
+function HeavyComponent() {
+  const store = getHeavyStore();
+  const data = useStore(store, state => state.largeDataset);
+  return <div>{data.length} items</div>;
+}`}
+</CodeBlock>
+
+### Selective Store Loading
+<CodeBlock language="tsx">
+{`// Load store data only when component mounts
+function FeatureComponent() {
+  const [store] = useState(() => createStore(featureInitialState));
+  
+  useEffect(() => {
+    // Load feature-specific data
+    featureActions.loadData();
+  }, []);
+  
+  const data = useStore(store, state => state.data);
+  return <div>{data}</div>;
+}`}
+</CodeBlock>
+
+<Admonition type="success" title="Performance Checklist">
+  <ul>
+    <li>✅ Use precise selectors to minimize re-renders</li>
+    <li>✅ Apply <code>shallow</code> equality for object selections</li>
+    <li>✅ Memoize expensive selector computations</li>
+    <li>✅ Leverage automatic microtask batching</li>
+    <li>✅ Use Maps for large, frequently updated datasets</li>
+    <li>✅ Implement row-level components for lists</li>
+    <li>✅ Monitor performance with React DevTools</li>
+    <li>✅ Clean up subscriptions properly</li>
+  </ul>
 </Admonition>
 
-## 2. Ensure Immutability
-
-SoulState relies on immutability for efficient change detection. Any direct mutation of state will bypass SoulState's internal mechanisms, leading to stale UI and unpredictable behavior.
-
-<CodeBlock language="typescript">
-{`// ❌ Anti-pattern: Mutates original array
-// useTodoStore.set(state => { state.todos.push(newTodo); });
-
-// ✅ Best Practice: Creates a new array
-useTodoStore.set(state => ({
-  todos: [...state.todos, newTodo]
-}));
-
-// ❌ Anti-pattern: Mutates original object
-// useUserStore.set(state => { state.user.age++; });
-
-// ✅ Best Practice: Creates a new object
-useUserStore.set(state => ({
-  user: { ...state.user, age: state.user.age + 1 }
-}));
-`}
-</CodeBlock>
-
-## 3. Leverage Automatic Batching
-
-SoulState automatically batches multiple `set` calls within the same microtask. This means you don't need to worry about manual batching in most cases.
-
-<CodeBlock language="typescript">
-{`// Both set calls will result in a single re-render
-useFormStore.set({ firstName: 'John' });
-useFormStore.set({ lastName: 'Doe' });
-`}
-</CodeBlock>
-
-This is particularly beneficial in event handlers where multiple state updates might occur in quick succession.
-
-## 4. Optimize Component Renders
-
-While SoulState optimizes store subscriptions, React component rendering itself can still be a bottleneck.
-
-### Use `React.memo`
-
-Wrap pure functional components that receive props (especially objects or arrays) with `React.memo` to prevent unnecessary re-renders if their props haven't changed.
-
-<CodeBlock language="tsx">
-{`const MyPureComponent = React.memo(({ data }) => {
-  // This component will only re-render if 'data' prop changes reference
-  return <div>{data.value}</div>;
-});
-`}
-</CodeBlock>
-
-### `useCallback` and `useMemo` for Stable References
-
-Ensure that functions and objects passed as props to `React.memo`-wrapped components have stable references using `useCallback` and `useMemo`.
-
-<CodeBlock language="tsx">
-{`function ParentComponent() {
-  const value = useStore(myStore, s => s.value);
-  const handleClick = useCallback(() => { /* ... */ }, []);
-  const memoizedObject = useMemo(() => ({ id: 1, value }), [value]);
-
-  return <ChildComponent onClick={handleClick} data={memoizedObject} />;
-}
-`}
-</CodeBlock>
-
-## 5. Profile Your Application
-
-When performance issues arise, don't guess. Use browser developer tools (React DevTools Profiler, Chrome Performance tab) to identify bottlenecks.
-
--   **React DevTools Profiler**: Helps identify which components are rendering unnecessarily and how long they take.
--   **Chrome Performance Tab**: Provides a detailed timeline of JavaScript execution, rendering, and layout, helping you pinpoint expensive operations.
-
-By systematically applying these performance tuning techniques, you can ensure your SoulState applications deliver a fast, fluid, and responsive user experience.
+<Admonition type="tip" title="Pro Performance Tips">
+  <ul>
+    <li>Start with performance in mind - don't optimize prematurely, but design for it</li>
+    <li>Use the browser's Performance tab to identify real bottlenecks</li>
+    <li>Test with large datasets to ensure your app scales well</li>
+    <li>Consider virtual scrolling for very large lists</li>
+    <li>Use SoulState's built-in optimizations before adding complex caching</li>
+  </ul>
+</Admonition>

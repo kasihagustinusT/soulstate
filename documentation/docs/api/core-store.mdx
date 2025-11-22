@@ -8,34 +8,49 @@ import { Admonition } from '@site/src/components/Admonition';
 
 # API: `createStore`
 
-This section covers the central `createStore` function, which is the entry point for creating and managing state in SoulState.
+The `createStore` function is the foundation of SoulState. It creates a store instance that holds your application state and provides methods to read and update it.
 
 ## `createStore`
 
-The `createStore` function creates a new store instance. This instance holds your state and provides methods to interact with it. In React applications, you'll typically define a store as a hook-like constant (e.g., `useMyStore`).
+Creates a new store instance with the provided initial state.
 
 ### Signature
 
 <CodeBlock language="typescript">
-{`type StateCreator<T> = (
-  set: (updater: Partial<T> | ((state: T) => Partial<T> | T)) => void,
-  get: () => T,
-  api: Store<T>
-) => T;
-
-function createStore<T extends object>(
-  initializer: StateCreator<T>
+{`function createStore<T extends object>(
+  initialState: T
 ): Store<T>;
 `}
 </CodeBlock>
 
-- **`initializer`**: A function that creates your state.
-- It receives `set`, `get`, and the `api` instance itself.
-- It must return the initial state object, including any action functions.
+- **`initialState`**: The initial state object for your store.
+- **Returns**: A `Store<T>` instance with `get`, `set`, and `subscribe` methods.
 
-### Return Value: `Store<T>`
+### Basic Usage
 
-`createStore` returns a `Store` object. While you'll primarily use the `useStore` hook to interact with it in React, the store object itself has three key methods for use in non-React environments or for advanced integrations.
+<CodeBlock language="typescript">
+{`import { createStore } from 'soulstate';
+
+// Create a store with initial state
+export const counterStore = createStore({
+  count: 0,
+  user: null
+});
+
+// Define actions as separate functions
+export const counterActions = {
+  increment: () => counterStore.set((state) => ({ count: state.count + 1 })),
+  setUser: (user: any) => counterStore.set({ user }),
+  reset: () => counterStore.set({ count: 0, user: null })
+};
+`}
+</CodeBlock>
+
+---
+
+## Store Interface
+
+`createStore` returns a `Store` object with three core methods:
 
 <CodeBlock language="typescript">
 {`export interface Store<T> {
@@ -47,6 +62,8 @@ function createStore<T extends object>(
     options?: { equalityFn?: (a: S, b: S) => boolean }
   ) => () => void;
 }
+
+type StateUpdater<T> = Partial<T> | ((state: T) => Partial<T> | T);
 `}
 </CodeBlock>
 
@@ -56,72 +73,203 @@ function createStore<T extends object>(
 
 ### `store.get()`
 
-Returns the current state of the store at the time of calling.
+Returns the current state of the store.
 
 - **Signature**: `() => T`
-- **Behavior**: This method provides a direct, non-reactive snapshot of the state. It does **not** create a subscription and will not cause a component to re-render. It is ideal for one-off reads inside event handlers or effects.
+- **Behavior**: Provides a direct, non-reactive snapshot of the state. Does not create a subscription.
 
 <CodeBlock language="typescript">
-{`import { useBearStore } from './store';
+{`import { counterStore } from './store';
 
-function handleSomeEvent() {
-  // Get the current number of bears without subscribing to changes.
-  const currentBears = useBearStore.get().bears;
-  console.log('We have ' + currentBears + ' bears right now.');
+function logCurrentState() {
+  // Get current state without subscribing
+  const state = counterStore.get();
+  console.log('Current count:', state.count);
+  console.log('Current user:', state.user);
+}
+
+// In React components, prefer useStore for reactive reads
+function Counter() {
+  const count = useStore(counterStore, state => state.count);
+  // ...
 }
 `}
 </CodeBlock>
 
 ### `store.set()`
 
-Updates the store's state by merging a partial state object. This is the primary way to modify state.
+Updates the store's state. Supports both direct object updates and functional updates.
 
-- **Signature**: `(updater: Partial<T> | ((state: T) => Partial<T> | T)) => void`
-- **Behavior**: Calling `set` triggers the update process. All updates are automatically batched using a microtask. Subscribers will be notified with the final state after all `set` calls in the current event loop tick have completed.
+- **Signature**: `(updater: StateUpdater<T>) => void`
+- **Behavior**: All updates are automatically batched using microtasks.
 
 **Object Update:**
 <CodeBlock language="typescript">
-{`// Sets the 'bears' count to 5, leaving other state untouched.
-useBearStore.set({ bears: 5 });
+{`// Direct object update - merges with current state
+counterStore.set({ count: 5 });
+counterStore.set({ user: { name: 'John', age: 30 } });
+
+// Multiple properties at once
+counterStore.set({ count: 10, user: null });
 `}
 </CodeBlock>
 
 **Functional Update:**
 <CodeBlock language="typescript">
-{`// Recommended for updates that depend on the current state.
-useBearStore.set((state) => ({ bears: state.bears + 1 }));
+{`// Recommended for updates that depend on current state
+counterStore.set((state) => ({ count: state.count + 1 }));
+counterStore.set((state) => ({ 
+  user: { ...state.user, age: state.user.age + 1 }
+}));
+`}
+</CodeBlock>
+
+**Performance Optimization:**
+<CodeBlock language="typescript">
+{`// SoulState automatically optimizes updates:
+// - Skips updates if values haven't changed
+// - Batches multiple updates into single notification
+// - Uses structural sharing to minimize object creation
+
+const handleOptimizedUpdate = () => {
+  counterStore.set({ count: 5 });     // 🚫 No immediate re-render
+  counterStore.set({ count: 5 });     // 🚫 Skipped (same value)
+  counterStore.set({ count: 10 });    // 🚫 No immediate re-render
+  // ✅ Single re-render with final state (count: 10)
+};
 `}
 </CodeBlock>
 
 ### `store.subscribe()`
 
-Subscribes to changes in a selected part of the state. This is the low-level method that powers the `useStore` hook.
+Low-level method to subscribe to state changes. Powers the `useStore` React hook.
 
-- **Signature**: `<S>(selector, listener, options) => () => void`
-- **Returns**: An `unsubscribe` function to tear down the subscription.
+- **Signature**: `<S>(selector, listener, options?) => () => void`
+- **Returns**: Unsubscribe function
 
 **Parameters:**
-- `selector: (state: T) => S`: A function to select a slice of state to watch.
-- `listener: (selectedState: S, prevSelectedState: S) => void`: A callback that fires only when the selected state has changed. It receives the new and previous values of the selected state.
-- `options.equalityFn?: (a: S, b: S) => boolean`: An optional function to compare the previous and new selected state. Defaults to `Object.is`. The listener is only called if this function returns `false`.
+- `selector: (state: T) => S` - Extracts the slice of state to watch
+- `listener: (newValue: S, oldValue: S) => void` - Called when selected state changes
+- `options.equalityFn?: (a: S, b: S) => boolean` - Custom equality function (default: `Object.is`)
 
-<CodeBlock language="typescript">
-{`// Subscribe to just the 'bears' property
-const unsubscribe = useBearStore.subscribe(
-  (state) => state.bears,
-  (newBears, oldBears) => {
-    console.log('Bears count changed from ' + oldBears + ' to ' + newBears);
+```tsx
+import { counterStore } from './store';
+
+// Subscribe to count changes
+const unsubscribe = counterStore.subscribe(
+  (state) => state.count,
+  (newCount, oldCount) => {
+    console.log(`Count changed from ${oldCount} to ${newCount}`);
   }
 );
 
-// Trigger the subscription
-useBearStore.set({ bears: 10 });
+// Subscribe with custom equality (shallow comparison)
+import { shallow } from 'soulstate/utils';
 
-// Later, to prevent memory leaks
+const unsubscribeUser = counterStore.subscribe(
+  (state) => ({ count: state.count, user: state.user }),
+  (newData, oldData) => {
+    console.log('Count or user changed:', newData);
+  },
+  { equalityFn: shallow }
+);
+
+// Trigger updates
+counterStore.set({ count: 10 });
+counterStore.set({ user: { name: 'Alice' } });
+
+// Clean up subscriptions
 unsubscribe();
+unsubscribeUser();
+```
+
+<Admonition type="warning" title="React Usage">
+  <p>In React components, always prefer the <code>useStore</code> hook over direct <code>subscribe</code> calls. <code>useStore</code> handles component lifecycle, cleanup, and integrates properly with React's rendering system.</p>
+</Admonition>
+
+---
+
+## Store Creation Patterns
+
+### Basic Store
+<CodeBlock language="typescript">
+{`// Simple counter store
+export const counterStore = createStore({ count: 0 });
+
+export const counterActions = {
+  increment: () => counterStore.set(state => ({ count: state.count + 1 })),
+  decrement: () => counterStore.set(state => ({ count: state.count - 1 })),
+  reset: () => counterStore.set({ count: 0 })
+};
 `}
 </CodeBlock>
 
-<Admonition type="info" title="React Usage">
-  <p>In React, you should always prefer the <code>useStore</code> hook over <code>store.subscribe()</code>. <code>useStore</code> is specifically designed to handle component lifecycles and integrate with React's rendering engine correctly.</p>
+### Complex Store with Multiple Actions
+```tsx
+// User management store
+interface UserState {
+  user: { id: string; name: string; email: string } | null;
+  isLoggedIn: boolean;
+  preferences: { theme: string; language: string };
+}
+
+export const userStore = createStore<UserState>({
+  user: null,
+  isLoggedIn: false,
+  preferences: { theme: 'light', language: 'en' }
+});
+
+export const userActions = {
+  login: (userData: any) => userStore.set({ 
+    user: userData, 
+    isLoggedIn: true 
+  }),
+  
+  logout: () => userStore.set({ 
+    user: null, 
+    isLoggedIn: false 
+  }),
+  
+  updatePreferences: (updates: Partial<UserState['preferences']>) => 
+    userStore.set(state => ({
+      preferences: { ...state.preferences, ...updates }
+    })),
+  
+  updateProfile: (updates: Partial<UserState['user']>) =>
+    userStore.set(state => ({
+      user: state.user ? { ...state.user, ...updates } : null
+    }))
+};
+```
+---
+
+## Advanced: Standalone Usage
+
+While typically used with React, SoulState stores can be used in any JavaScript environment:
+
+```tsx
+// Node.js or non-React usage
+const appState = createStore({ status: 'idle', data: null });
+
+// Subscribe to changes
+const unsubscribe = appState.subscribe(
+  state => state.status,
+  (newStatus, oldStatus) => {
+    console.log(`Status: ${oldStatus} → ${newStatus}`);
+  }
+);
+
+// Update state
+appState.set({ status: 'loading' });
+appState.set(state => ({ data: { items: [] }, status: 'success' }));
+
+// Get current state
+console.log('Current state:', appState.get());
+
+// Clean up
+unsubscribe();
+```
+
+<Admonition type="success" title="Key Takeaway">
+  <p><code>createStore</code> provides a minimal yet powerful foundation for state management. With just three methods—<code>get</code>, <code>set</code>, and <code>subscribe</code>—you get automatic batching, optimal performance, and seamless React integration.</p>
 </Admonition>

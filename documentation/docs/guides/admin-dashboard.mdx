@@ -6,176 +6,503 @@ sidebar_label: Admin Dashboard
 import CodeBlock from '@theme/CodeBlock';
 import { Admonition } from '@site/src/components/Admonition';
 
-# Guides: Building an Admin Dashboard with SoulState
+# Building an Admin Dashboard with SoulState
 
-Admin dashboards are complex applications often characterized by numerous data tables, forms, real-time updates, and intricate user interactions. SoulState's performance-first approach and modular design make it an excellent choice for managing state in such demanding environments.
+Admin dashboards are complex applications with numerous data tables, forms, real-time updates, and intricate user interactions. SoulState's performance-first architecture and modular design make it ideal for managing state in these demanding environments.
 
-## Key Challenges in Admin Dashboards
+## Architecture Overview
 
-1.  **Data Fetching & Caching**: Managing data from various API endpoints, often with pagination, filtering, and sorting.
-2.  **Form Management**: Handling complex form states, validation, and submission across many different forms.
-3.  **Real-time Updates**: Integrating WebSockets or SSE for live data feeds.
-4.  **User Interface State**: Managing UI elements like modals, notifications, sidebar visibility, and theme settings.
-5.  **Modularity**: Keeping the codebase organized as the dashboard grows, avoiding a monolithic state.
+### Modular Store Structure
+```
+src/stores/
+├── userStore.ts      # User management
+├── productStore.ts   # Product catalog
+├── orderStore.ts     # Order processing
+├── uiStore.ts        # Theme, sidebar, notifications
+└── index.ts          # Combined exports
+```
 
-## SoulState's Solutions
+## 1. Domain-Specific Stores
 
-### 1. Modular Stores for Domain-Specific State
+Create focused stores for each business domain to maintain separation of concerns and optimize performance.
 
-Instead of one giant store, create multiple smaller, domain-specific stores. This improves maintainability, reduces cognitive load, and allows for more targeted updates.
-
+### User Management Store
 <CodeBlock language="typescript">
 {`// stores/userStore.ts
-interface User { id: string; name: string; email: string; role: 'admin' | 'editor'; }
-interface UserState {
-  users: User[];
-  loading: boolean;
-  fetchUsers: () => Promise<void>;
-  addUser: (user: User) => void;
-}
-export const useUserStore = createStore<UserState>((set, get) => ({
-  users: [],
-  loading: false,
-  fetchUsers: async () => {
-    set({ loading: true });
-    const response = await fetch('/api/users');
-    const users = await response.json();
-    set({ users, loading: false });
-  },
-  addUser: (user) => set(state => ({ users: [...state.users, user] })),
-}));
+import { createStore } from 'soulstate';
 
-// stores/productStore.ts
-interface Product { id: string; name: string; price: number; stock: number; }
-interface ProductState {
-  products: Product[];
-  loading: boolean;
-  fetchProducts: () => Promise<void>;
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  role: 'admin' | 'editor' | 'viewer';
+  status: 'active' | 'inactive';
+  lastLogin: Date;
 }
-export const useProductStore = createStore<ProductState>((set) => ({
-  products: [],
+
+export interface UserState {
+  users: User[];
+  selectedUser: User | null;
+  loading: boolean;
+  error: string | null;
+  filters: {
+    role: string;
+    status: string;
+    search: string;
+  };
+}
+
+export const userStore = createStore<UserState>({
+  users: [],
+  selectedUser: null,
   loading: false,
-  fetchProducts: async () => {
-    set({ loading: true });
-    const response = await fetch('/api/products');
-    const products = await response.json();
-    set({ products, loading: false });
+  error: null,
+  filters: {
+    role: '',
+    status: '',
+    search: ''
+  }
+});
+
+export const userActions = {
+  // Async actions
+  fetchUsers: async () => {
+    userStore.set({ loading: true, error: null });
+    try {
+      const response = await fetch('/api/users');
+      const users = await response.json();
+      userStore.set({ users, loading: false });
+    } catch (error) {
+      userStore.set({ error: 'Failed to fetch users', loading: false });
+    }
   },
-}));
-`}
+
+  // Sync actions
+  setSelectedUser: (user: User | null) => {
+    userStore.set({ selectedUser: user });
+  },
+
+  updateUser: (userId: string, updates: Partial<User>) => {
+    userStore.set(state => ({
+      users: state.users.map(user =>
+        user.id === userId ? { ...user, ...updates } : user
+      )
+    }));
+  },
+
+  setFilters: (filters: Partial<UserState['filters']>) => {
+    userStore.set(state => ({
+      filters: { ...state.filters, ...filters }
+    }));
+  }
+};`}
 </CodeBlock>
 
-### 2. Efficient Data Tables with Selectors
+### Product Catalog Store
+<CodeBlock language="typescript">
+{`// stores/productStore.ts
+import { createStore } from 'soulstate';
 
-Use selectors to extract only the data needed for a specific table or row, combined with `shallow` equality for multi-property selections.
+export interface Product {
+  id: string;
+  name: string;
+  price: number;
+  stock: number;
+  category: string;
+  status: 'active' | 'archived';
+}
 
+export const productStore = createStore({
+  products: [] as Product[],
+  loading: false,
+  categories: [] as string[]
+});
+
+export const productActions = {
+  fetchProducts: async (category?: string) => {
+    productStore.set({ loading: true });
+    const url = category ? \`/api/products?category=\${category}\` : '/api/products';
+    const response = await fetch(url);
+    const products = await response.json();
+    productStore.set({ products, loading: false });
+  },
+
+  updateStock: (productId: string, newStock: number) => {
+    productStore.set(state => ({
+      products: state.products.map(product =>
+        product.id === productId ? { ...product, stock: newStock } : product
+      )
+    }));
+  }
+};`}
+</CodeBlock>
+
+## 2. Efficient Data Tables with Surgical Selectors
+
+Use precise selectors to ensure components only re-render when their specific data changes.
+
+### User Table Component
 <CodeBlock language="tsx">
-{`import { useStore, shallow } from 'soulstate/react';
-import { useUserStore } from '../stores/userStore';
+{`// components/UserTable.tsx
+import { useStore } from 'soulstate/react';
+import { userStore, userActions } from '../stores/userStore';
+import { shallow } from 'soulstate/utils';
 
-function UserTable() {
-  const { users, loading, fetchUsers } = useStore(
-    useUserStore,
-    state => ({ users: state.users, loading: state.loading, fetchUsers: state.fetchUsers }),
-    shallow
+export function UserTable() {
+  // Subscribe to filtered users and loading state
+  const { filteredUsers, loading } = useStore(
+    userStore,
+    (state) => {
+      let users = state.users;
+      
+      // Apply filters
+      if (state.filters.role) {
+        users = users.filter(user => user.role === state.filters.role);
+      }
+      if (state.filters.status) {
+        users = users.filter(user => user.status === state.filters.status);
+      }
+      if (state.filters.search) {
+        const searchLower = state.filters.search.toLowerCase();
+        users = users.filter(user => 
+          user.name.toLowerCase().includes(searchLower) ||
+          user.email.toLowerCase().includes(searchLower)
+        );
+      }
+      
+      return { filteredUsers: users, loading: state.loading };
+    },
+    shallow // Use shallow comparison for object selection
   );
 
-  useEffect(() => {
-    fetchUsers();
-  }, [fetchUsers]);
-
-  if (loading) return <div>Loading users...</div>;
+  if (loading) {
+    return <div className="loading">Loading users...</div>;
+  }
 
   return (
-    <table>
+    <table className="user-table">
       <thead>
-        <tr><th>Name</th><th>Email</th><th>Role</th></tr>
+        <tr>
+          <th>Name</th>
+          <th>Email</th>
+          <th>Role</th>
+          <th>Status</th>
+          <th>Last Login</th>
+        </tr>
       </thead>
       <tbody>
-        {users.map(user => (
-          <UserRow key={user.id} userId={user.id} />
+        {filteredUsers.map(user => (
+          <UserTableRow key={user.id} userId={user.id} />
         ))}
       </tbody>
     </table>
   );
 }
 
-function UserRow({ userId }: { userId: string }) {
-  // Select only the specific user data for this row
-  const user = useStore(useUserStore, state => state.users.find(u => u.id === userId));
+// Individual row component for optimal performance
+function UserTableRow({ userId }: { userId: string }) {
+  // Each row subscribes only to its specific user data
+  const user = useStore(
+    userStore,
+    (state) => state.users.find(u => u.id === userId)
+  );
 
-  if (!user) return null; // User might be deleted or not found
+  if (!user) return null;
 
   return (
     <tr>
       <td>{user.name}</td>
       <td>{user.email}</td>
-      <td>{user.role}</td>
+      <td>
+        <select 
+          value={user.role}
+          onChange={(e) => userActions.updateUser(userId, { role: e.target.value as any })}
+        >
+          <option value="admin">Admin</option>
+          <option value="editor">Editor</option>
+          <option value="viewer">Viewer</option>
+        </select>
+      </td>
+      <td>
+        <span className={\`status-badge \${user.status}\`}>
+          {user.status}
+        </span>
+      </td>
+      <td>{new Date(user.lastLogin).toLocaleDateString()}</td>
     </tr>
   );
-}
-`}
+}`}
 </CodeBlock>
 
-### 3. Real-time Updates with `store.subscribe()`
+## 3. Real-time Updates with Store Subscriptions
 
-For real-time features, you can use the low-level `store.subscribe()` method to react to external events (like WebSocket messages) and update the store.
+Integrate WebSocket connections for live data updates.
 
 <CodeBlock language="typescript">
-{`// In a service or effect
-import { useNotificationStore } from '../stores/notificationStore';
+{`// services/websocketService.ts
+import { userStore, userActions } from '../stores/userStore';
+import { productStore, productActions } from '../stores/productStore';
 
-const connectWebSocket = () => {
-  const ws = new WebSocket('ws://localhost:8080/notifications');
-  ws.onmessage = (event) => {
-    const notification = JSON.parse(event.data);
-    useNotificationStore.set(state => ({
-      notifications: [...state.notifications, notification]
-    }));
-  };
-  return () => ws.close(); // Cleanup function
-};
+export class WebSocketService {
+  private ws: WebSocket | null = null;
 
-// In a React component (e.g., App.tsx)
-// useEffect(() => connectWebSocket(), []);
-`}
+  connect() {
+    this.ws = new WebSocket('ws://localhost:8080/realtime');
+
+    this.ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      
+      switch (data.type) {
+        case 'USER_UPDATED':
+          userActions.updateUser(data.userId, data.updates);
+          break;
+        case 'PRODUCT_STOCK_UPDATED':
+          productActions.updateStock(data.productId, data.stock);
+          break;
+        case 'NEW_ORDER':
+          // Handle new order notification
+          break;
+      }
+    };
+
+    this.ws.onclose = () => {
+      // Attempt reconnection
+      setTimeout(() => this.connect(), 5000);
+    };
+  }
+
+  disconnect() {
+    this.ws?.close();
+  }
+}
+
+export const websocketService = new WebSocketService();`}
 </CodeBlock>
 
-### 4. Global UI State
+## 4. Global UI State Management
 
-For global UI concerns like theme, language, or sidebar visibility, a dedicated UI store is effective.
+Manage theme, sidebar, and notifications in a dedicated UI store.
 
 <CodeBlock language="typescript">
 {`// stores/uiStore.ts
-interface UIState {
+import { createStore } from 'soulstate';
+
+export interface Notification {
+  id: string;
+  type: 'success' | 'error' | 'warning' | 'info';
+  title: string;
+  message: string;
+  timestamp: Date;
+}
+
+export interface UIState {
   theme: 'light' | 'dark';
   sidebarOpen: boolean;
-  toggleTheme: () => void;
-  toggleSidebar: () => void;
+  currentPage: string;
+  notifications: Notification[];
+  modals: {
+    userCreate: boolean;
+    userEdit: boolean;
+    productImport: boolean;
+  };
 }
-export const useUIStore = createStore<UIState>((set) => ({
+
+export const uiStore = createStore<UIState>({
   theme: 'light',
   sidebarOpen: true,
-  toggleTheme: () => set(state => ({ theme: state.theme === 'light' ? 'dark' : 'light' })),
-  toggleSidebar: () => set(state => ({ sidebarOpen: !state.sidebarOpen })),
-}));
-`}
+  currentPage: 'dashboard',
+  notifications: [],
+  modals: {
+    userCreate: false,
+    userEdit: false,
+    productImport: false
+  }
+});
+
+export const uiActions = {
+  toggleTheme: () => {
+    uiStore.set(state => ({
+      theme: state.theme === 'light' ? 'dark' : 'light'
+    }));
+  },
+
+  toggleSidebar: () => {
+    uiStore.set(state => ({ sidebarOpen: !state.sidebarOpen }));
+  },
+
+  addNotification: (notification: Omit<Notification, 'id' | 'timestamp'>) => {
+    const newNotification: Notification = {
+      ...notification,
+      id: Math.random().toString(36).substr(2, 9),
+      timestamp: new Date()
+    };
+    
+    uiStore.set(state => ({
+      notifications: [...state.notifications, newNotification]
+    }));
+
+    // Auto-remove after 5 seconds
+    setTimeout(() => {
+      uiActions.removeNotification(newNotification.id);
+    }, 5000);
+  },
+
+  removeNotification: (id: string) => {
+    uiStore.set(state => ({
+      notifications: state.notifications.filter(n => n.id !== id)
+    }));
+  },
+
+  openModal: (modal: keyof UIState['modals']) => {
+    uiStore.set(state => ({
+      modals: { ...state.modals, [modal]: true }
+    }));
+  },
+
+  closeModal: (modal: keyof UIState['modals']) => {
+    uiStore.set(state => ({
+      modals: { ...state.modals, [modal]: false }
+    }));
+  }
+};`}
 </CodeBlock>
 
-<Admonition type="tip" title="Middleware for Persistence">
-  <p>Use the <code>persist</code> middleware for UI settings like theme to ensure they are remembered across sessions.</p>
-  <CodeBlock language="typescript">
-  {`import { persist } from 'soulstate/middleware';
-export const useUIStore = createStore(
-  persist(
-    (set) => ({ /* ... */ }),
-    { name: 'ui-settings' }
-  )
-);
-`}
-  </CodeBlock>
+## 5. Performance Optimizations
+
+### Memoized Selectors for Complex Data
+<CodeBlock language="typescript">
+{`// stores/selectors.ts
+import { userStore } from './userStore';
+
+// Memoized selector for user statistics
+export const getUserStats = () => {
+  const users = userStore.get().users;
+  
+  return {
+    total: users.length,
+    active: users.filter(u => u.status === 'active').length,
+    admins: users.filter(u => u.role === 'admin').length,
+    editors: users.filter(u => u.role === 'editor').length
+  };
+};
+
+// Component using memoized selector
+export function UserStats() {
+  const stats = useStore(userStore, (state) => {
+    const users = state.users;
+    return {
+      total: users.length,
+      active: users.filter(u => u.status === 'active').length,
+      admins: users.filter(u => u.role === 'admin').length
+    };
+  });
+
+  return (
+    <div className="stats-grid">
+      <div className="stat-card">
+        <h3>Total Users</h3>
+        <span className="stat-value">{stats.total}</span>
+      </div>
+      <div className="stat-card">
+        <h3>Active Users</h3>
+        <span className="stat-value">{stats.active}</span>
+      </div>
+      <div className="stat-card">
+        <h3>Admins</h3>
+        <span className="stat-value">{stats.admins}</span>
+      </div>
+    </div>
+  );
+}`}
+</CodeBlock>
+
+### Batch Updates for Better Performance
+<CodeBlock language="typescript">
+{`// Optimized batch update example
+export const userActions = {
+  bulkUpdateUsers: (updates: Array<{ userId: string; updates: Partial<User> }>) => {
+    // Single set call for multiple updates
+    userStore.set(state => ({
+      users: state.users.map(user => {
+        const update = updates.find(u => u.userId === user.id);
+        return update ? { ...user, ...update.updates } : user;
+      })
+    }));
+  },
+
+  // Batch multiple related updates
+  createUserWithProfile: async (userData: Omit<User, 'id'>) => {
+    userStore.set({ loading: true });
+    
+    try {
+      const user = await api.createUser(userData);
+      
+      // Batch both updates
+      userStore.set(state => ({
+        users: [...state.users, { ...user, id: user.id }],
+        loading: false
+      }));
+      
+      uiActions.addNotification({
+        type: 'success',
+        title: 'User Created',
+        message: \`User \${user.name} was created successfully\`
+      });
+    } catch (error) {
+      userStore.set({ loading: false });
+      uiActions.addNotification({
+        type: 'error',
+        title: 'Creation Failed',
+        message: 'Failed to create user'
+      });
+    }
+  }
+};`}
+</CodeBlock>
+
+## 6. Store Integration and Initialization
+
+<CodeBlock language="typescript">
+{`// stores/index.ts
+export { userStore, userActions } from './userStore';
+export { productStore, productActions } from './productStore';
+export { uiStore, uiActions } from './uiStore';
+
+// App initialization
+export const initializeStores = async () => {
+  // Load initial data
+  await Promise.all([
+    userActions.fetchUsers(),
+    productActions.fetchProducts()
+  ]);
+  
+  // Start real-time services
+  websocketService.connect();
+};
+
+// Cleanup on app unmount
+export const cleanupStores = () => {
+  websocketService.disconnect();
+};`}
+</CodeBlock>
+
+<Admonition type="success" title="Performance Benefits">
+  <p>This architecture ensures that:</p>
+  <ul>
+    <li>✅ User table rows only re-render when their specific user data changes</li>
+    <li>✅ Filter changes don't cause unnecessary re-renders in unaffected components</li>
+    <li>✅ Real-time updates are efficiently propagated to relevant components</li>
+    <li>✅ UI state changes are isolated and predictable</li>
+  </ul>
 </Admonition>
 
-## Conclusion
-
-SoulState provides the tools necessary to build high-performance, maintainable admin dashboards. By leveraging modular stores, fine-grained selectors, and efficient update mechanisms, you can manage complex state with confidence and deliver a smooth user experience.
+<Admonition type="tip" title="Best Practices">
+  <p>For large admin dashboards:</p>
+  <ul>
+    <li>Use multiple focused stores instead of one giant store</li>
+    <li>Leverage <code>shallow</code> equality for object selections</li>
+    <li>Implement row-level components for large tables</li>
+    <li>Batch related updates together</li>
+    <li>Use precise selectors to minimize re-renders</li>
+  </ul>
+</Admonition>

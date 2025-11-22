@@ -71,19 +71,20 @@ Often, you need to select multiple values from the store at once. If you create 
 <CodeBlock language="tsx">
 {`// ⚠️ ANTI-PATTERN: This will re-render on EVERY state change!
 // Why? Because a new object { user, posts } is created on every run.
-const { user, posts } = useStore(useAppStore, state => ({ 
-  user: state.user, 
-  posts: state.posts 
+const { user, posts } = useStore(useAppStore, state => ({
+  user: state.user,
+  posts: state.posts
 }));
 `}
 </CodeBlock>
 
-To solve this, SoulState provides a `shallow` equality function. You can use it by importing `shallow` from `soulstate/react`.
+To solve this, SoulState provides a `shallow` equality function. You can use it by importing `shallow` from `soulstate/utils`.
 
 The `shallow` function performs a shallow comparison of the keys and values of two objects. It's the perfect tool for selectors that return a new object.
 
 <CodeBlock language="tsx">
-{`import { useStore, shallow } from 'soulstate/react';
+{`import { useStore } from 'soulstate/react';
+import { shallow } from 'soulstate/utils';
 
 // ✅ CORRECT: This will only re-render if 'user' or 'posts' change.
 const { user, posts } = useStore(
@@ -98,6 +99,29 @@ const { user, posts } = useStore(
 
 For more complex scenarios, such as deep comparisons or ignoring certain fields, you can provide your own custom equality function as the third argument to `useStore`.
 
+<CodeBlock language="tsx">
+{`import { useStore } from 'soulstate/react';
+
+// Custom equality function that compares by id only
+const compareById = (a, b) => a.id === b.id;
+
+const user = useStore(
+  useAppStore,
+  state => state.user,
+  compareById
+);
+
+// Or use a deep comparison library
+import { equal } from 'fast-deep-equal';
+
+const settings = useStore(
+  useAppStore, 
+  state => state.settings,
+  equal
+);
+`}
+</CodeBlock>
+
 <Admonition type="danger" title="Performance Warning">
   <p>Deep equality checks can be expensive. Use them with caution and only when necessary. For most cases, <code>Object.is</code> or <code>shallow</code> are sufficient and more performant.</p>
 </Admonition>
@@ -110,3 +134,88 @@ SoulState manages all subscriptions in a **doubly linked list**. This data struc
 - **When a component unmounts**: The node is removed by updating its neighbors' pointers (O(1)).
 
 This is significantly more efficient than using an array, where removing an item can be an O(n) operation, especially in large, dynamic applications.
+
+<CodeBlock language="typescript">
+{`// Simplified representation of the linked list structure
+interface SubscriptionNode<T, S> {
+  selector: (state: T) => S;
+  listener: (selectedState: S, prevSelectedState: S) => void;
+  equalityFn: (a: S, b: S) => boolean;
+  lastState: S;
+  prev: SubscriptionNode<T, any> | null;
+  next: SubscriptionNode<T, any> | null;
+}
+`}
+</CodeBlock>
+
+<Admonition type="info" title="Implementation Detail">
+  <p>The actual subscription implementation can be found in <code>src/core/subscriptions.ts</code>, which uses a doubly linked list for O(1) add/remove operations and efficient iteration.</p>
+</Admonition>
+
+## Microtask Batching
+
+SoulState batches multiple state updates using `queueMicrotask`, ensuring that subscribers are notified only once per event loop tick, even for multiple consecutive updates.
+
+<CodeBlock language="typescript">
+{`// In the store implementation:
+const scheduleNotification = () => {
+  if (!isNotificationScheduled) {
+    isNotificationScheduled = true;
+    queueMicrotask(notifySubscribers); // Batched!
+  }
+};
+
+// Multiple updates in one function
+const handleMultipleUpdates = () => {
+  store.set({ count: 1 });    // 🚫 No immediate notification
+  store.set({ user: 'John' }); // 🚫 No immediate notification  
+  store.set({ active: true }); // 🚫 No immediate notification
+  // ✅ All three updates batched into ONE notification
+};
+
+// This results in only one re-render for all three changes
+`}
+</CodeBlock>
+
+<Admonition type="tip" title="Performance Benefit">
+  <p>Microtask batching means that rapid, consecutive state updates (like in animations or rapid user input) won't cause excessive re-renders. All updates within the same event loop are coalesced into a single notification.</p>
+</Admonition>
+
+## Subscription Lifecycle
+
+Understanding the subscription lifecycle helps debug performance issues:
+
+1. **Mount**: Component calls `useStore` → New subscription node created
+2. **Update**: State changes → Selector runs → Equality check → Re-render if changed
+3. **Unmount**: Cleanup function runs → Subscription node removed
+
+<CodeBlock language="tsx">
+{`function UserProfile() {
+  // 1. On mount: subscription created and added to linked list
+  const user = useStore(store, state => state.user);
+  
+  // 2. On state change: selector runs, equality check happens
+  // 3. On unmount: subscription automatically removed from linked list
+  
+  return <div>{user.name}</div>;
+}
+`}
+</CodeBlock>
+
+## Best Practices
+
+### ✅ Do:
+- Use precise selectors to subscribe to minimal data
+- Leverage `shallow` for object selections
+- Keep equality functions simple and fast
+- Use multiple `useStore` calls for independent data
+
+### ❌ Don't:
+- Select entire state objects unnecessarily
+- Use expensive equality functions without need
+- Create new objects in selectors without `shallow`
+- Forget about the performance benefits of the linked list
+
+<Admonition type="success" title="Key Takeaway">
+  <p>SoulState's subscription system gives you surgical control over re-renders. By combining precise selectors with efficient equality checks and O(1) linked list operations, you get optimal performance by default.</p>
+</Admonition>
