@@ -1,113 +1,179 @@
----
-title: Selectors
-sidebar_label: Selectors
----
-
-import CodeBlock from '@theme/CodeBlock';
-import { Admonition } from '@site/src/components/Admonition';
-
 # Selectors
 
-Selectors are the cornerstone of SoulState's design and performance. A selector is a function that takes the entire state object and returns a smaller, specific piece of it.
+Selectors are the cornerstone of SoulState's design and performance. A selector is a pure function that receives the entire state and returns a specific slice of it.
 
-**The `useStore` hook is selector-driven.** This means your components subscribe to state changes *through* selectors.
+SoulState is **selector‑driven**. Components subscribe to state changes *through* selectors, ensuring precise and efficient updates.
 
-<CodeBlock language="tsx">
-{`import { useStore } from 'soulstate/react';
-import { useBearStore } from './store';
+```tsx
+import { useStore } from 'soulstate/react';
+import { counterStore } from './store';
 
-// This is a selector function.
-// It takes the full state and returns only the 'bears' number.
-const bearSelector = (state) => state.bears;
+// A simple selector extracting `count` from the full state
+const countSelector = (state) => state.count;
 
-function BearCounter() {
-  // The component subscribes to the store VIA the selector.
-  const bears = useStore(useBearStore, bearSelector);
-
-  // This component will ONLY re-render when 'state.bears' changes.
-  // Changes to any other part of the store will be ignored.
-  return <div>{bears} around here...</div>;
+function Counter() {
+  const count = useStore(counterStore, countSelector);
+  return <div>Count: {count}</div>;
 }
-`}
-</CodeBlock>
+```
 
-## Why Selectors are Essential for Performance
+---
 
-Without selectors, components would have to subscribe to the entire state object. This would cause them to re-render every time *any* part of the state changes, leading to many unnecessary and expensive renders.
+## Why Selectors Matter
 
-Selectors allow you to create a "virtual" subscription to a specific slice of the state.
+Without selectors, a component would subscribe to the entire store, causing re-renders whenever *any* part of the state updates. Selectors allow focused subscriptions: a component re-renders only when the **result of the selector changes**.
 
-<Admonition type="tip" title="The Golden Rule of Selectors">
-  <p>A component should only select the minimal amount of state it needs to render. The more granular your selectors, the fewer re-renders your application will have.</p>
-</Admonition>
+> **Golden Rule:** Select only the minimal state your component needs.
 
-## Selecting Multiple Items
+---
 
-A common pattern is to select multiple values for a single component. The naive approach can lead to performance issues.
+## Selecting Multiple Values
 
-### The Problem: New Object References
+### ❌ Anti-pattern: Returning a New Object
 
-<CodeBlock language="tsx">
-{`// ⚠️ ANTI-PATTERN
-// This selector creates a new object { bears, increase } every time it runs.
-// Because the object reference is always new, the default equality check fails,
-// and the component re-renders on EVERY state change.
-const { bears, increase } = useStore(useBearStore, (state) => ({
-  bears: state.bears,
-  increase: state.increase,
+```tsx
+// Anti-pattern: new object every run → always re-renders
+const data = useStore(counterStore, (state) => ({
+  count: state.count,
+  user: state.user,
 }));
-`}
-</CodeBlock>
+```
 
-### The Solution: `shallow` Equality
+Because the selector returns a **new object reference**, SoulState's default equality check marks it as "changed" even if values stay identical.
 
-To solve this, you must provide an alternative equality function that compares the *contents* of the object, not its reference. SoulState provides the `shallow` function for this exact purpose.
+### ✅ Solution: Use `shallow`
 
-<CodeBlock language="tsx">
-{`import { useStore, shallow } from 'soulstate/react';
+Use SoulState’s shallow comparison for multi-field selections.
 
-// ✅ BEST PRACTICE
-// By providing 'shallow' as the third argument, we tell useStore
-// to compare the values of 'bears' and 'increase' inside the object.
-// The component now only re-renders if 'state.bears' or 'state.increase' changes.
-const { bears, increase } = useStore(
-  useBearStore,
+```tsx
+import { shallow } from 'soulstate/utils';
+
+const data = useStore(
+  counterStore,
   (state) => ({
-    bears: state.bears,
-    increase: state.increase,
+    count: state.count,
+    user: state.user,
   }),
   shallow
 );
-`}
-</CodeBlock>
+```
 
-## Memoizing Selectors for Expensive Computations
+---
 
-If your selector performs an expensive computation (e.g., filtering a large array), you should memoize it to prevent re-running the computation on every render.
+## Multiple Independent Selectors
 
-While SoulState doesn't ship with a `createSelector` utility out of the box (to keep the core minimal), you can easily use libraries like `reselect` or a simple custom memoization hook.
+For finer granularity and better subscription isolation, call `useStore` multiple times.
 
-### Example with `reselect`:
+```tsx
+function UserProfile() {
+  const count = useStore(counterStore, (s) => s.count);
+  const user = useStore(counterStore, (s) => s.user);
+  const isActive = useStore(counterStore, (s) => s.isActive);
 
-<CodeBlock language="typescript">
-{`import { createSelector } from 'reselect';
+  return (
+    <div>
+      <h1>{user.name}</h1>
+      <p>Count: {count}</p>
+      <p>Status: {isActive ? 'Active' : 'Inactive'}</p>
+    </div>
+  );
+}
+```
 
-const selectItems = (state) => state.items;
-const selectFilter = (state) => state.filter;
+> SoulState batches store notifications, so multiple selector calls do **not** produce extra emission overhead.
 
-const selectVisibleItems = createSelector(
-  [selectItems, selectFilter],
-  (items, filter) => {
-    console.log('Running expensive filter...');
-    return items.filter(item => item.name.includes(filter));
+---
+
+## Derived State via Selectors
+
+Selectors can compute derived data based solely on state.
+
+```tsx
+function TodoStats() {
+  const total = useStore(todoStore, (s) => s.todos.length);
+  const completed = useStore(todoStore, (s) => s.todos.filter(t => t.completed).length);
+  const active = useStore(todoStore, (s) => s.todos.filter(t => !t.completed).length);
+
+  return (
+    <div>
+      <p>Total: {total}</p>
+      <p>Completed: {completed}</p>
+      <p>Active: {active}</p>
+    </div>
+  );
+}
+```
+
+Selectors run whenever the store updates, so expensive selectors should be memoized.
+
+---
+
+## Memoizing Expensive Selectors
+
+SoulState does not memoize selector results internally. If your selector performs heavy work, memoize it using React or libraries like `reselect`.
+
+### Using `useMemo`
+
+```tsx
+function ExpensiveList() {
+  const todos = useStore(todoStore, (s) => s.todos);
+  const filter = useStore(todoStore, (s) => s.filter);
+
+  const filtered = useMemo(() => {
+    return todos.filter(todo => {
+      if (filter === 'active') return !todo.completed;
+      if (filter === 'completed') return todo.completed;
+      return true;
+    });
+  }, [todos, filter]);
+
+  return <div>{filtered.length} items</div>;
+}
+```
+
+### Using `reselect`
+
+```ts
+import { createSelector } from 'reselect';
+
+const selectTodos = (s) => s.todos;
+const selectFilter = (s) => s.filter;
+
+export const selectVisibleTodos = createSelector(
+  [selectTodos, selectFilter],
+  (todos, filter) => {
+    return todos.filter(todo => {
+      if (filter === 'active') return !todo.completed;
+      if (filter === 'completed') return todo.completed;
+      return true;
+    });
   }
 );
 
-// In your component:
-// const visibleItems = useStore(useItemStore, selectVisibleItems);
-`}
-</CodeBlock>
+// const visible = useStore(todoStore, selectVisibleTodos);
+```
 
-<Admonition type="info" title="When to Memoize">
-  <p>You only need to memoize selectors if they are performing computationally expensive work. For simple property access (<code>state => state.prop</code>), memoization is unnecessary overhead.</p>
-</Admonition>
+---
+
+## Selector Best Practices
+
+### ✅ Do
+
+* Select the smallest possible slice of state
+* Use multiple `useStore` calls for independent values
+* Use `shallow` when returning objects
+* Memoize expensive computations
+* Keep selectors pure (depend only on state)
+
+### ❌ Don’t
+
+* Return new objects without shallow comparison
+* Select the entire state
+* Insert side effects in selectors
+* Base selector logic on external variables
+
+---
+
+## Key Takeaway
+
+Selectors give you surgical precision over component re-renders. When used correctly, they ensure optimal rendering performance and predictable state‑driven UI behavior in SoulState.

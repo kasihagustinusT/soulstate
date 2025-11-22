@@ -6,145 +6,298 @@ sidebar_label: Modular Stores
 import CodeBlock from '@theme/CodeBlock';
 import { Admonition } from '@site/src/components/Admonition';
 
-# Guides: Modular Stores
+# Modular Stores with SoulState
 
-As your application grows, managing all state within a single, monolithic store can become unwieldy. SoulState encourages a modular approach, allowing you to break down your application's state into smaller, independent, and domain-specific stores. This enhances maintainability, improves team collaboration, and can lead to better performance.
+As your application grows, managing all state in a single store becomes unwieldy. SoulState's modular architecture allows you to break down state into focused, domain-specific stores that work together seamlessly.
 
-## Why Modularize?
+## Why Modular Stores?
 
-1.  **Separation of Concerns**: Each store focuses on a specific domain (e.g., authentication, user profiles, shopping cart, UI settings).
-2.  **Improved Readability and Maintainability**: Smaller files are easier to understand, debug, and maintain.
-3.  **Reduced Cognitive Load**: Developers only need to understand the state relevant to the feature they are working on.
-4.  **Enhanced Scalability**: Easier to manage state in large teams and complex applications.
-5.  **Targeted Updates**: While SoulState's core batching and selectors already optimize performance, modular stores can further reduce the scope of state changes, making it clearer which parts of the application are affected.
+- **Separation of Concerns**: Each store manages a specific domain
+- **Better Maintainability**: Smaller, focused stores are easier to understand
+- **Team Scalability**: Multiple teams can work on different stores
+- **Performance**: Smaller stores mean fewer subscribers to notify
+- **Reusability**: Stores can be shared across different app parts
 
-## How to Create Modular Stores
+## Creating Modular Stores
 
-Creating modular stores in SoulState is straightforward: simply define multiple `createStore` instances, each in its own file, representing a distinct domain.
+Create focused stores for each business domain with clean separation between state and actions.
 
 <CodeBlock language="typescript">
 {`// stores/authStore.ts
-interface AuthState {
-  isAuthenticated: boolean;
-  user: { id: string; name: string; email: string } | null;
-  login: (credentials: any) => Promise<void>;
-  logout: () => void;
+import { createStore } from 'soulstate';
+
+export interface User {
+  id: string;
+  name: string;
+  email: string;
 }
 
-export const useAuthStore = createStore<AuthState>((set) => ({
+export interface AuthState {
+  isAuthenticated: boolean;
+  user: User | null;
+  loading: boolean;
+}
+
+// Store contains only state
+export const authStore = createStore<AuthState>({
   isAuthenticated: false,
   user: null,
-  login: async (credentials) => {
-    // Simulate API call
-    const response = await new Promise(resolve => setTimeout(() => resolve({ id: '123', name: 'John Doe', email: 'john@example.com' }), 500));
-    set({ isAuthenticated: true, user: response as any });
+  loading: false
+});
+
+// Actions are separate functions
+export const authActions = {
+  login: async (credentials: any) => {
+    authStore.set({ loading: true });
+    
+    try {
+      // Simulate API call
+      const user = await new Promise<User>(resolve => 
+        setTimeout(() => resolve({ 
+          id: '123', name: 'John Doe', email: 'john@example.com' 
+        }), 500)
+      );
+      
+      authStore.set({ 
+        isAuthenticated: true, 
+        user, 
+        loading: false 
+      });
+    } catch (error) {
+      authStore.set({ loading: false });
+    }
   },
-  logout: () => set({ isAuthenticated: false, user: null }),
-}));
+
+  logout: () => {
+    authStore.set({ 
+      isAuthenticated: false, 
+      user: null 
+    });
+  }
+};
 
 // stores/themeStore.ts
-interface ThemeState {
-  theme: 'light' | 'dark';
-  toggleTheme: () => void;
-}
+import { createStore } from 'soulstate';
 
-export const useThemeStore = createStore<ThemeState>((set) => ({
-  theme: 'light',
-  toggleTheme: () => set(state => ({ theme: state.theme === 'light' ? 'dark' : 'light' })),
-}));
-`}
+export const themeStore = createStore({
+  theme: 'light' as 'light' | 'dark'
+});
+
+export const themeActions = {
+  toggleTheme: () => {
+    themeStore.set(state => ({ 
+      theme: state.theme === 'light' ? 'dark' : 'light' 
+    }));
+  }
+};`}
 </CodeBlock>
 
-## Consuming Modular Stores in Components
+## Using Modular Stores in Components
 
-In your React components, you simply import and use the specific store(s) you need, leveraging `useStore` with appropriate selectors.
+Import and use specific stores with precise selectors for optimal performance.
 
 <CodeBlock language="tsx">
 {`import { useStore } from 'soulstate/react';
-import { useAuthStore } from '../stores/authStore';
-import { useThemeStore } from '../stores/themeStore';
+import { authStore, authActions } from '../stores/authStore';
+import { themeStore, themeActions } from '../stores/themeStore';
 
 function Header() {
-  const isAuthenticated = useStore(useAuthStore, (state) => state.isAuthenticated);
-  const user = useStore(useAuthStore, (state) => state.user);
-  const logout = useStore(useAuthStore, (state) => state.logout);
-
-  const theme = useStore(useThemeStore, (state) => state.theme);
-  const toggleTheme = useStore(useThemeStore, (state) => state.toggleTheme);
+  // Subscribe to specific pieces of state
+  const isAuthenticated = useStore(authStore, (state) => state.isAuthenticated);
+  const user = useStore(authStore, (state) => state.user);
+  const theme = useStore(themeStore, (state) => state.theme);
 
   return (
-    <header style={{ background: theme === 'dark' ? '#333' : '#eee', color: theme === 'dark' ? '#eee' : '#333' }}>
+    <header style={{ 
+      background: theme === 'dark' ? '#333' : '#eee', 
+      color: theme === 'dark' ? '#eee' : '#333' 
+    }}>
       {isAuthenticated ? (
         <>
           <span>Welcome, {user?.name}</span>
-          <button onClick={logout}>Logout</button>
+          <button onClick={authActions.logout}>Logout</button>
         </>
       ) : (
         <span>Please log in</span>
       )}
-      <button onClick={toggleTheme}>Toggle Theme ({theme})</button>
+      <button onClick={themeActions.toggleTheme}>
+        Toggle Theme ({theme})
+      </button>
     </header>
   );
-}
-`}
+}`}
 </CodeBlock>
 
-## Inter-Store Communication
+## Cross-Store Communication
 
-While stores should ideally be independent, sometimes one store needs to react to changes in another.
-
-### Option 1: Pass Actions as Arguments
-
-The simplest way is to pass an action from one store to another as an argument.
-
+### Method 1: Direct Action Calls
 <CodeBlock language="typescript">
 {`// stores/notificationStore.ts
-export const useNotificationStore = createStore((set) => ({
-  notifications: [],
-  addNotification: (message: string) => set(state => ({
-    notifications: [...state.notifications, { id: Date.now(), message }]
-  })),
-}));
+import { createStore } from 'soulstate';
 
-// stores/authStore.ts (modified)
-export const useAuthStore = createStore((set) => ({
-  // ... other state ...
-  login: async (credentials) => {
-    // ... login logic ...
-    useNotificationStore.getState().addNotification('Login successful!');
-    set({ isAuthenticated: true, user: { id: '1', name: 'User' } });
-  },
-}));
-`}
-</CodeBlock>
+export const notificationStore = createStore({
+  notifications: [] as Array<{ id: number; message: string }>
+});
 
-### Option 2: Subscribe to Another Store
+export const notificationActions = {
+  addNotification: (message: string) => {
+    notificationStore.set(state => ({
+      notifications: [
+        ...state.notifications, 
+        { id: Date.now(), message }
+      ]
+    }));
+  }
+};
 
-A store can subscribe to another store's changes using `store.subscribe()`. This is useful for more complex reactions or derived state.
-
-<CodeBlock language="typescript">
-{`// stores/analyticsStore.ts
-export const useAnalyticsStore = createStore((set) => ({
-  loginCount: 0,
-  // ...
-}));
-
-// In an initialization file or effect:
-useAuthStore.subscribe(
-  (state) => state.isAuthenticated,
-  (isAuthenticated, prevIsAuthenticated) => {
-    if (isAuthenticated && !prevIsAuthenticated) {
-      useAnalyticsStore.getState().set(state => ({ loginCount: state.loginCount + 1 }));
+// Modified authActions to call other store actions
+export const authActions = {
+  login: async (credentials: any) => {
+    authStore.set({ loading: true });
+    
+    try {
+      // ... login logic
+      authStore.set({ isAuthenticated: true, user: userData, loading: false });
+      
+      // Call other store action
+      notificationActions.addNotification('Login successful!');
+    } catch (error) {
+      authStore.set({ loading: false });
+      notificationActions.addNotification('Login failed!');
     }
   }
-);
-`}
+};`}
+</CodeBlock>
+
+### Method 2: Store Subscriptions
+<CodeBlock language="typescript">
+{`// stores/analyticsStore.ts
+import { createStore } from 'soulstate';
+import { authStore } from './authStore';
+
+export const analyticsStore = createStore({
+  loginCount: 0,
+  lastLogin: null as Date | null
+});
+
+// Subscribe to auth store changes
+export const setupAuthAnalytics = () => {
+  return authStore.subscribe(
+    (state) => state.isAuthenticated,
+    (isAuthenticated, prevIsAuthenticated) => {
+      if (isAuthenticated && !prevIsAuthenticated) {
+        // Update analytics when user logs in
+        analyticsStore.set(state => ({
+          loginCount: state.loginCount + 1,
+          lastLogin: new Date()
+        }));
+      }
+    }
+  );
+};
+
+// Initialize in your app
+// useEffect(() => {
+//   const unsubscribe = setupAuthAnalytics();
+//   return unsubscribe;
+// }, []);`}
+</CodeBlock>
+
+### Method 3: Combined Actions
+<CodeBlock language="typescript">
+{`// stores/appActions.ts
+import { authActions } from './authStore';
+import { notificationActions } from './notificationStore';
+import { analyticsStore } from './analyticsStore';
+
+export const appActions = {
+  loginWithAnalytics: async (credentials: any) => {
+    try {
+      await authActions.login(credentials);
+      notificationActions.addNotification('Welcome back!');
+      
+      // Update analytics directly
+      analyticsStore.set(state => ({
+        loginCount: state.loginCount + 1
+      }));
+    } catch (error) {
+      notificationActions.addNotification('Login failed');
+      throw error;
+    }
+  }
+};`}
+</CodeBlock>
+
+## Store Organization Patterns
+
+### Domain-Based Structure
+```
+src/stores/
+├── auth/
+│   ├── authStore.ts
+│   └── authActions.ts
+├── users/
+│   ├── userStore.ts
+│   └── userActions.ts
+├── ui/
+│   ├── uiStore.ts
+│   └── uiActions.ts
+└── index.ts
+```
+
+### Store Index for Clean Imports
+<CodeBlock language="typescript">
+{`// stores/index.ts
+export { authStore, authActions } from './auth/authStore';
+export { userStore, userActions } from './users/userStore';
+export { uiStore, uiActions } from './ui/uiStore';
+
+// Clean imports in components
+import { authStore, authActions } from '../stores';`}
+</CodeBlock>
+
+## Best Practices
+
+### Keep Stores Focused
+<CodeBlock language="typescript">
+{`// ✅ Good: Focused store
+export const cartStore = createStore({
+  items: [],
+  total: 0
+});
+
+// ❌ Avoid: Mixed concerns
+export const appStore = createStore({
+  user: null,
+  products: [],
+  cart: [],
+  theme: 'light'
+  // Too many unrelated domains
+});`}
+</CodeBlock>
+
+### Use Precise Selectors
+<CodeBlock language="tsx">
+{`// ✅ Good: Surgical subscriptions
+function UserProfile() {
+  const userName = useStore(authStore, state => state.user?.name);
+  const theme = useStore(uiStore, state => state.theme);
+  // Each subscription is independent and precise
+
+  return <div className={theme}>{userName}</div>;
+}`}
 </CodeBlock>
 
 <Admonition type="caution" title="Avoid Circular Dependencies">
-  <p>When stores interact, be mindful of circular dependencies. Design your stores to be as independent as possible, and use explicit communication channels (like passing actions or subscribing) rather than direct imports that could lead to cycles.</p>
+  <p>When stores interact, be mindful of circular dependencies. Design stores to be independent and use explicit communication patterns.</p>
 </Admonition>
 
-## Conclusion
-
-Modular stores in SoulState provide a clean, scalable, and efficient way to manage complex application state. By organizing your state logically and using clear communication patterns, you can build robust applications that are easy to understand and maintain.
+<Admonition type="success" title="Modular Benefits">
+  <ul>
+    <li>✅ Better performance with focused stores</li>
+    <li>✅ Clean separation of concerns</li>
+    <li>✅ Easier testing and maintenance</li>
+    <li>✅ Team-friendly architecture</li>
+    <li>✅ Reusable across features</li>
+  </ul>
+</Admonition>

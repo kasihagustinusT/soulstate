@@ -1,24 +1,24 @@
 ---
-title: "API: getState()"
-sidebar_label: getState()
+title: "API: get()"
+sidebar_label: get()
 ---
 
 import CodeBlock from '@theme/CodeBlock';
 import { Admonition } from '@site/src/components/Admonition';
 
-# API: `store.getState()`
+# API: `store.get()`
 
-The `store.getState()` method provides a direct way to access the current state of a SoulState store. It is primarily used for non-reactive reads, typically outside of React components or within actions where you need a snapshot of the current state without triggering re-renders.
+The `store.get()` method provides a direct way to access the current state of a SoulState store. It is used for non-reactive reads, typically outside of React components or within actions where you need a snapshot of the current state without triggering re-renders.
 
 ## Summary
 
-`store.getState()` returns the current state object held by the store. It is a synchronous, non-reactive operation.
+`store.get()` returns the current state object held by the store. It is a synchronous, non-reactive operation.
 
 ## Function Signature
 
 <CodeBlock language="typescript">
 {`interface Store<T> {
-  getState: () => T;
+  get: () => T;
   // ... other methods
 }
 `}
@@ -28,84 +28,216 @@ The `store.getState()` method provides a direct way to access the current state 
 
 None.
 
-## Return Values
+## Return Value
 
--   `T`: The current state object of the store.
+- `T`: The current state object of the store.
 
 ## Usage Examples
 
 ### Basic Usage: Reading State Outside React
 
-You can call `getState()` directly on your store instance to get its current value.
+You can call `get()` directly on your store instance to get its current value.
 
 <CodeBlock language="typescript">
-{`import { useCounterStore } from '../stores/counterStore'; // Assuming you have a counter store
+{`import { counterStore } from '../stores/counterStore';
 
-const currentCount = useCounterStore.getState().count;
-console.log('Current count:', currentCount); // Output: Current count: 0 (or whatever it is)
+// Get the entire state
+const currentState = counterStore.get();
+console.log('Current state:', currentState);
+
+// Get specific property
+const currentCount = counterStore.get().count;
+console.log('Current count:', currentCount);
 `}
 </CodeBlock>
 
 ### Advanced Usage: Within Actions
 
-`getState()` is often used within your store's actions (defined in the `createStore` initializer) to derive new state based on the current state.
+`get()` is often used within actions to derive new state based on the current state.
 
 <CodeBlock language="typescript">
 {`import { createStore } from 'soulstate';
 
-interface TodoState {
-  todos: { id: number; text: string; completed: boolean }[];
-  addTodo: (text: string) => void;
-  toggleAll: () => void;
-}
+// Create store
+export const todoStore = createStore({
+  todos: []
+});
 
-export const useTodoStore = createStore<TodoState>((set, get) => ({
-  todos: [],
-  addTodo: (text) => {
-    set(state => ({
+// Define actions that use store.get()
+export const todoActions = {
+  addTodo: (text: string) => {
+    todoStore.set(state => ({
       todos: [...state.todos, { id: Date.now(), text, completed: false }]
     }));
   },
+  
   toggleAll: () => {
-    const currentTodos = get().todos; // Get current state non-reactively
+    // Use get() to read current state non-reactively
+    const currentTodos = todoStore.get().todos;
     const allCompleted = currentTodos.every(todo => todo.completed);
-    set(state => ({
-      todos: state.todos.map(todo => ({ ...todo, completed: !allCompleted }))
+    
+    todoStore.set(state => ({
+      todos: state.todos.map(todo => ({ 
+        ...todo, 
+        completed: !allCompleted 
+      }))
     }));
   },
-}));
+  
+  getCompletedCount: () => {
+    // Utility function using get()
+    return todoStore.get().todos.filter(todo => todo.completed).length;
+  }
+};
+`}
+</CodeBlock>
+
+### Usage in Event Handlers
+
+<CodeBlock language="tsx">
+{`import { counterStore, counterActions } from '../stores/counterStore';
+
+function SomeComponent() {
+  const handleComplexAction = () => {
+    // Read current state in event handler
+    const currentCount = counterStore.get().count;
+    
+    if (currentCount > 10) {
+      console.log('Count is already high:', currentCount);
+      return;
+    }
+    
+    // Perform multiple updates
+    counterActions.increment();
+    counterActions.increment();
+    
+    // Verify the final state
+    console.log('Final count:', counterStore.get().count);
+  };
+
+  return (
+    <button onClick={handleComplexAction}>
+      Complex Action
+    </button>
+  );
+}
 `}
 </CodeBlock>
 
 ## Anti-patterns
 
-### 1. Using `getState()` for Reactive UI Updates
+### 1. Using `get()` for Reactive UI Updates
 
-Never use `store.getState()` directly in a React component's render logic if you expect the component to re-render when the state changes. `getState()` is non-reactive. For reactive updates, always use the `useStore` hook.
+Never use `store.get()` directly in a React component's render logic if you expect the component to re-render when the state changes. `get()` is non-reactive. For reactive updates, always use the `useStore` hook.
 
 <CodeBlock language="tsx">
 {`// ❌ Anti-pattern: This component will NOT update when count changes
-function MyComponent() {
-  const count = useCounterStore.getState().count; // Stale value
+function BadCounter() {
+  const count = counterStore.get().count; // Stale value after updates
   return <div>Count: {count}</div>;
 }
 
 // ✅ Correct: Use useStore hook for reactive updates
 import { useStore } from 'soulstate/react';
-function MyReactiveComponent() {
-  const count = useStore(useCounterStore, state => state.count);
+function GoodCounter() {
+  const count = useStore(counterStore, state => state.count);
   return <div>Count: {count}</div>;
 }
 `}
 </CodeBlock>
 
+### 2. Using `get()` Instead of Functional Updates
+
+Avoid using `get()` when a functional update would be more appropriate.
+
+<CodeBlock language="typescript">
+{`// ❌ Less optimal: Multiple store interactions
+const increment = () => {
+  const current = counterStore.get().count;
+  counterStore.set({ count: current + 1 });
+};
+
+// ✅ Better: Single atomic update with functional set
+const increment = () => {
+  counterStore.set(state => ({ count: state.count + 1 }));
+};
+`}
+</CodeBlock>
+
 ## Performance Notes
 
-`store.getState()` is an extremely fast, O(1) operation. It simply returns a reference to the current state object. It involves no subscriptions, no change detection, and no re-renders.
+`store.get()` is an extremely fast, O(1) operation. It simply returns a reference to the current state object. It involves:
 
-## Common Mistakes
+- ✅ No subscriptions
+- ✅ No change detection  
+- ✅ No equality checks
+- ✅ No re-renders
 
--   Forgetting that `getState()` is non-reactive and expecting UI updates.
--   Calling `getState()` excessively within a tight loop when a single read would suffice.
+## Common Use Cases
 
-`store.getState()` is a powerful tool for accessing the current state directly, especially within actions or for one-off reads. For any reactive UI updates, always defer to the `useStore` hook.
+### Logging and Debugging
+<CodeBlock language="typescript">
+{`// Useful for debugging state changes
+const logState = () => {
+  console.log('Current store state:', counterStore.get());
+};
+
+// Or in development
+if (process.env.NODE_ENV === 'development') {
+  window.getStoreState = () => counterStore.get();
+}
+`}
+</CodeBlock>
+
+### Conditional Logic in Actions
+<CodeBlock language="typescript">
+{`export const authActions = {
+  login: (credentials: any) => {
+    // Check current state before proceeding
+    if (authStore.get().isLoading) {
+      console.log('Already loading, skipping...');
+      return;
+    }
+    
+    authStore.set({ isLoading: true });
+    // ... login logic
+  }
+};
+`}
+</CodeBlock>
+
+### Integration with Non-React Code
+<CodeBlock language="typescript">
+{`// Using SoulState stores in vanilla JS
+document.getElementById('save-btn').addEventListener('click', () => {
+  const currentData = formStore.get();
+  saveToLocalStorage('form-data', currentData);
+});
+
+// In Node.js scripts
+const currentConfig = configStore.get();
+generateReport(currentConfig);
+`}
+</CodeBlock>
+
+## Best Practices
+
+### ✅ Do:
+- Use `get()` for one-off reads in event handlers
+- Use `get()` in actions for conditional logic
+- Use `get()` for debugging and logging
+- Use `get()` when integrating with non-React code
+
+### ❌ Don't:
+- Use `get()` for reactive UI updates
+- Call `get()` excessively in performance-critical loops
+- Use `get()` when functional `set()` would suffice
+- Forget that `get()` returns stale data in async contexts
+
+<Admonition type="warning" title="Async Context Warning">
+  <p>In asynchronous code, the state returned by <code>get()</code> might be stale if other updates occur before your async operation completes. For async scenarios, consider storing the needed values in local variables before the async call.</p>
+</Admonition>
+
+<Admonition type="success" title="Key Takeaway">
+  <p><code>store.get()</code> is your tool for non-reactive state access. Use it for reading current state in actions, event handlers, and non-React code. For any data that should update your UI reactively, always use <code>useStore</code>.</p>
+</Admonition>

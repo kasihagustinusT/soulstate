@@ -8,48 +8,48 @@ import { Admonition } from '@site/src/components/Admonition';
 
 # API: Utilities
 
-SoulState provides a minimal set of utility functions to enhance state management, particularly for optimizing React component re-renders.
+SoulState provides utility functions to enhance state management and optimize React component re-renders.
 
 ## `shallow`
 
-The `shallow` utility is an equality function designed for performing a shallow comparison of two objects. It is primarily used with the `useStore` hook or `store.subscribe()` when your selector returns a new object containing multiple properties.
+The `shallow` utility performs a shallow comparison of two objects, checking if their top-level properties are equal. It's primarily used with `useStore` or `store.subscribe()` when selectors return new objects.
 
-## Summary
+### Summary
 
-`shallow` compares the top-level properties of two objects. If all corresponding properties are strictly equal (`Object.is`), it returns `true`; otherwise, it returns `false`.
+`shallow` compares the top-level properties of two objects using strict equality (`Object.is`). It returns `true` if all properties are equal, `false` otherwise.
 
-## Function Signature
+### Function Signature
 
 <CodeBlock language="typescript">
-{`function shallow<T>(objA: T, objB: T): boolean;
+{`function shallow<T, U>(a: T, b: U): boolean;
 `}
 </CodeBlock>
 
-## Parameters
+### Parameters
 
--   `objA: T`: The first object to compare.
--   `objB: T`: The second object to compare.
+- `a: T`: The first value to compare
+- `b: U`: The second value to compare
 
-## Return Values
+### Return Value
 
--   `boolean`: `true` if the objects are shallowly equal, `false` otherwise.
+- `boolean`: `true` if values are shallowly equal, `false` otherwise
 
-## Usage Examples
+### Usage Examples
 
-### With `useStore` (Recommended)
+#### With `useStore`
 
-Use `shallow` as the third argument to `useStore` when your selector creates a new object from multiple state properties.
+Use `shallow` as the third argument to `useStore` when selecting multiple properties.
 
 <CodeBlock language="tsx">
-{`import { useStore, shallow } from 'soulstate/react';
-import { useUserStore } from '../stores/userStore';
+{`import { useStore } from 'soulstate/react';
+import { shallow } from 'soulstate/utils';
+import { userStore } from '../stores/userStore';
 
-function UserDetails() {
-  // Selects user's name and email into a new object
+function UserProfile() {
   const { name, email } = useStore(
-    useUserStore,
-    (state) => ({ name: state.user.name, email: state.user.email }),
-    shallow // Ensures re-render only if name OR email changes
+    userStore,
+    (state) => ({ name: state.name, email: state.email }),
+    shallow // Only re-render when name or email changes
   );
 
   return (
@@ -62,55 +62,202 @@ function UserDetails() {
 `}
 </CodeBlock>
 
-### With `store.subscribe()`
+#### With `store.subscribe()`
 
-You can also use `shallow` with the low-level `store.subscribe()` method.
+Use `shallow` with the low-level subscription API.
 
 <CodeBlock language="typescript">
-{`import { useUserStore } from '../stores/userStore';
-import { shallow } from 'soulstate/react';
+{`import { userStore } from '../stores/userStore';
+import { shallow } from 'soulstate/utils';
 
-const unsubscribe = useUserStore.subscribe(
-  (state) => ({ name: state.user.name, email: state.user.email }),
-  (newUser, prevUser) => {
-    console.log('User name or email changed:', newUser, prevUser);
+const unsubscribe = userStore.subscribe(
+  (state) => ({ name: state.name, email: state.email }),
+  (newData, prevData) => {
+    console.log('User data changed:', newData);
   },
   { equalityFn: shallow }
 );
 
-// ... later ...
+// Clean up
 unsubscribe();
+`}
+</CodeBlock>
+
+### Comparison Examples
+
+<CodeBlock language="typescript">
+{`import { shallow } from 'soulstate/utils';
+
+// Primitives - same as Object.is
+shallow(1, 1); // true
+shallow(1, 2); // false
+
+// Objects with same properties
+shallow({ a: 1, b: 2 }, { a: 1, b: 2 }); // true
+shallow({ a: 1, b: 2 }, { a: 1, b: 3 }); // false
+
+// Different property counts
+shallow({ a: 1 }, { a: 1, b: 2 }); // false
+
+// Nested objects (only top-level compared)
+shallow({ a: { b: 1 } }, { a: { b: 1 } }); // false (different a references)
+`}
+</CodeBlock>
+
+## `objectIs`
+
+The default equality function used by SoulState, providing strict reference equality checking.
+
+### Function Signature
+
+<CodeBlock language="typescript">
+{`function objectIs(a: any, b: any): boolean;
+`}
+</CodeBlock>
+
+### Usage
+
+<CodeBlock language="typescript">
+{`import { objectIs } from 'soulstate/utils';
+
+// Same as Object.is
+objectIs(1, 1); // true
+objectIs(NaN, NaN); // true
+objectIs(0, -0); // false
+
+// Reference equality for objects
+const obj = {};
+objectIs(obj, obj); // true
+objectIs({}, {}); // false
+`}
+</CodeBlock>
+
+## `soulBatch`
+
+Utility for batching multiple state updates (Note: SoulState automatically batches updates with microtasks, so this is primarily for advanced use cases).
+
+### Function Signature
+
+<CodeBlock language="typescript">
+{`function createBatch(): {
+  batch: (callback: () => void, store: any) => void;
+};
+
+const soulBatch = createBatch();
+`}
+</CodeBlock>
+
+### Usage
+
+<CodeBlock language="typescript">
+{`import { soulBatch } from 'soulstate/utils';
+
+// Manual batching (rarely needed due to automatic microtask batching)
+soulBatch.batch(() => {
+  store.set({ count: 1 });
+  store.set({ user: 'John' });
+  store.set({ active: true });
+}, store);
+`}
+</CodeBlock>
+
+## `devtools`
+
+Utility for connecting SoulState stores to Redux DevTools Extension.
+
+### Function Signature
+
+<CodeBlock language="typescript">
+{`function devtools(
+  store: any,
+  config?: DevToolsConfig
+): any;
+
+interface DevToolsConfig {
+  name?: string;
+  trace?: boolean;
+  features?: any;
+}
+`}
+</CodeBlock>
+
+### Usage
+
+<CodeBlock language="typescript">
+{`import { createStore } from 'soulstate';
+import { devtools } from 'soulstate/utils';
+
+// Create store
+const store = createStore({ count: 0 });
+
+// Enhance with DevTools
+const storeWithDevTools = devtools(store, {
+  name: 'CounterStore',
+  trace: true
+});
+
+// All updates will appear in Redux DevTools
+storeWithDevTools.set({ count: 1 });
 `}
 </CodeBlock>
 
 ## Anti-patterns
 
-### 1. Using `shallow` for Deeply Nested Objects
-
-`shallow` only compares the top-level properties. If your selector returns an object that contains other objects or arrays, and changes occur within those nested structures, `shallow` will not detect them.
+### Using `shallow` Unnecessarily
 
 <CodeBlock language="tsx">
-{`// ❌ Anti-pattern: Will NOT detect changes in 'user.address.street'
-const { user } = useStore(
-  useUserStore,
-  state => ({ user: state.user }), // user is an object with nested address object
-  shallow // Only compares top-level properties of 'user'
-);
+{`// ❌ Unnecessary - Object.is is sufficient for primitives
+const count = useStore(store, state => state.count, shallow);
 
-// If state.user.address.street changes, 'user' reference might not change,
-// and shallow will return true, preventing re-render.
+// ✅ Better - use default equality for primitives
+const count = useStore(store, state => state.count);
 `}
 </CodeBlock>
 
-For deeply nested objects, you would need a deep equality function (which can be computationally expensive) or, preferably, restructure your state or selectors to avoid deep dependencies.
+### Expecting Deep Comparison
 
-## Performance Notes
+<CodeBlock language="tsx">
+{`// ❌ shallow only compares top-level properties
+const user = useStore(
+  store,
+  state => ({ profile: state.user.profile }),
+  shallow
+);
+// Won't detect changes in state.user.profile.name
 
-`shallow` is a very efficient comparison function. It iterates through the keys of the objects once. Its performance is `O(k)` where `k` is the number of keys in the object, making it much faster than a deep equality check for most use cases.
+// ✅ Select nested properties directly
+const profileName = useStore(store, state => state.user.profile.name);
+`}
+</CodeBlock>
 
-## Common Mistakes
+## Performance Characteristics
 
--   Using `shallow` when the selector returns a primitive value (e.g., `state => state.count`). `Object.is` is sufficient and slightly faster.
--   Using `shallow` for deeply nested objects and expecting it to detect changes within those nested structures.
+- **`shallow`**: O(n) where n is number of properties
+- **`objectIs`**: O(1) constant time operation  
+- **Automatic batching**: All updates batched with `queueMicrotask`
 
-The `shallow` utility is an indispensable tool for optimizing re-renders when selecting multiple properties into a new object, providing a perfect balance between performance and convenience.
+## Best Practices
+
+### ✅ Do:
+- Use `shallow` for object selections from multiple properties
+- Use default `Object.is` for primitive values
+- Trust SoulState's automatic microtask batching
+- Import utilities from `'soulstate/utils'`
+
+### ❌ Don't:
+- Use `shallow` for primitive values
+- Expect `shallow` to compare nested objects
+- Manually batch updates unless necessary
+- Use utilities for simple property access
+
+<Admonition type="info" title="Import Path">
+  <p>All utilities are exported from <code>'soulstate/utils'</code>, not from the main package or React bindings.</p>
+</Admonition>
+
+<Admonition type="warning" title="Automatic Batching">
+  <p>SoulState automatically batches all state updates using microtasks. The <code>soulBatch</code> utility is rarely needed in practice.</p>
+</Admonition>
+
+<Admonition type="success" title="Key Takeaway">
+  <p>SoulState's utilities provide optimized equality checking and developer tools integration. Use <code>shallow</code> for efficient object comparisons and trust the built-in performance optimizations.</p>
+</Admonition>

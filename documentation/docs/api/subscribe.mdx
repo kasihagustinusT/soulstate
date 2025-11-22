@@ -29,23 +29,23 @@ The `store.subscribe()` method allows you to listen for changes in a specific pa
 
 ## Parameters
 
-1.  **`selector: (state: T) => S`**:
-    -   A function that receives the entire store state (`state: T`) and returns a specific slice of that state (`S`).
-    -   The `listener` will only be invoked if the value returned by this `selector` changes.
+1. **`selector: (state: T) => S`**:
+   - A function that receives the entire store state (`state: T`) and returns a specific slice of that state (`S`).
+   - The `listener` will only be invoked if the value returned by this `selector` changes.
 
-2.  **`listener: (selectedState: S, prevSelectedState: S) => void`**:
-    -   A callback function that is executed when the `selectedState` (as determined by the `selector` and `equalityFn`) changes.
-    -   It receives two arguments: `selectedState` (the new value) and `prevSelectedState` (the previous value).
+2. **`listener: (selectedState: S, prevSelectedState: S) => void`**:
+   - A callback function that is executed when the `selectedState` (as determined by the `selector` and `equalityFn`) changes.
+   - It receives two arguments: `selectedState` (the new value) and `prevSelectedState` (the previous value).
 
-3.  **`options?: { equalityFn?: (a: S, b: S) => boolean }`**:
-    -   An optional object to configure the subscription.
-    -   `equalityFn?: (a: S, b: S) => boolean`: A function used to compare the `selectedState` with `prevSelectedState`. If this function returns `true`, the `listener` will *not* be called.
-    -   **Default**: `Object.is` (strict reference equality).
-    -   Commonly used: `shallow` for shallow object comparison.
+3. **`options?: { equalityFn?: (a: S, b: S) => boolean }`**:
+   - An optional object to configure the subscription.
+   - `equalityFn?: (a: S, b: S) => boolean`: A function used to compare the `selectedState` with `prevSelectedState`. If this function returns `true`, the `listener` will *not* be called.
+   - **Default**: `Object.is` (strict reference equality).
+   - Commonly used: `shallow` for shallow object comparison.
 
-## Return Values
+## Return Value
 
--   `() => void`: An `unsubscribe` function. Calling this function will remove the registered listener from the store, preventing memory leaks.
+- `() => void`: An `unsubscribe` function. Calling this function will remove the registered listener from the store, preventing memory leaks.
 
 ## Usage Examples
 
@@ -54,9 +54,9 @@ The `store.subscribe()` method allows you to listen for changes in a specific pa
 Listen to changes in a single primitive value.
 
 <CodeBlock language="typescript">
-{`import { useCounterStore } from '../stores/counterStore';
+{`import { counterStore } from '../stores/counterStore';
 
-const unsubscribe = useCounterStore.subscribe(
+const unsubscribe = counterStore.subscribe(
   (state) => state.count, // Selector: selects the 'count' property
   (newCount, prevCount) => { // Listener: logs the change
     console.log('Count changed from ' + prevCount + ' to ' + newCount);
@@ -64,7 +64,7 @@ const unsubscribe = useCounterStore.subscribe(
 );
 
 // Trigger some changes
-useCounterStore.setState((state) => ({ count: state.count + 1 })); // Logs: Count changed from 0 to 1
+counterStore.set((state) => ({ count: state.count + 1 })); // Logs: Count changed from 0 to 1
 
 // Clean up when done
 unsubscribe();
@@ -76,9 +76,9 @@ unsubscribe();
 Use a custom equality function to control when the listener is called.
 
 <CodeBlock language="typescript">
-{`import { useTodoStore } from '../stores/todoStore';
+{`import { todoStore } from '../stores/todoStore';
 
-const unsubscribe = useTodoStore.subscribe(
+const unsubscribe = todoStore.subscribe(
   (state) => state.todos.length, // Selector: get number of todos
   (newLength, prevLength) => {
     console.log('Todo count changed from ' + prevLength + ' to ' + newLength);
@@ -95,16 +95,146 @@ const unsubscribe = useTodoStore.subscribe(
 Use `shallow` equality when selecting multiple properties.
 
 <CodeBlock language="typescript">
-{`import { useUserStore } from '../stores/userStore';
-import { shallow } from 'soulstate';
+{`import { userStore } from '../stores/userStore';
+import { shallow } from 'soulstate/utils';
 
-const unsubscribe = useUserStore.subscribe(
+const unsubscribe = userStore.subscribe(
   (state) => ({ name: state.name, email: state.email }), // Selector: returns new object
   (newUserInfo, prevUserInfo) => {
-    console.log('User info changed');
+    console.log('User info changed:', newUserInfo);
   },
   {
     equalityFn: shallow // Use shallow comparison for object
+  }
+);
+`}
+</CodeBlock>
+
+### Real-time Analytics Example
+
+<CodeBlock language="typescript">
+{`import { analyticsStore } from '../stores/analyticsStore';
+
+// Track user behavior in real-time
+const analyticsUnsubscribe = analyticsStore.subscribe(
+  (state) => ({ pageViews: state.pageViews, activeUsers: state.activeUsers }),
+  (metrics, prevMetrics) => {
+    // Send to analytics service only when metrics change
+    if (metrics.pageViews !== prevMetrics.pageViews) {
+      analytics.track('page_view', { count: metrics.pageViews });
+    }
+  },
+  { equalityFn: shallow }
+);
+
+// Later, when analytics are no longer needed
+analyticsUnsubscribe();
+`}
+</CodeBlock>
+
+## Performance Characteristics
+
+### O(1) Subscription Management
+SoulState uses a **doubly linked list** for subscription management, providing:
+- **O(1)** subscription addition
+- **O(1)** subscription removal
+- **O(n)** notification (where n = number of subscriptions)
+
+<CodeBlock language="typescript">
+{`// Simplified linked list structure from src/core/subscriptions.ts
+interface SubscriptionNode<T, S> {
+  selector: (state: T) => S;
+  listener: (selectedState: S, prevSelectedState: S) => void;
+  equalityFn: (a: S, b: S) => boolean;
+  lastState: S;
+  prev: SubscriptionNode<T, any> | null;
+  next: SubscriptionNode<T, any> | null;
+}
+`}
+</CodeBlock>
+
+### Microtask Batching
+All subscription notifications are batched using `queueMicrotask`:
+
+<CodeBlock language="typescript">
+{`// Multiple updates → single notification batch
+counterStore.set({ count: 1 });    // 🚫 No immediate notification
+counterStore.set({ count: 2 });    // 🚫 No immediate notification
+counterStore.set({ count: 3 });    // 🚫 No immediate notification
+// ✅ All three updates notified in single microtask
+`}
+</CodeBlock>
+
+## Anti-patterns
+
+### 1. Forgetting to Unsubscribe
+<CodeBlock language="typescript">
+{`// ❌ Memory leak: subscription never cleaned up
+const startAnalytics = () => {
+  store.subscribe(selector, listener); // Never unsubscribed
+};
+
+// ✅ Always clean up subscriptions
+const startAnalytics = () => {
+  const unsubscribe = store.subscribe(selector, listener);
+  return unsubscribe; // Return for cleanup
+};
+`}
+</CodeBlock>
+
+### 2. Expensive Selectors in Tight Loops
+<CodeBlock language="typescript">
+{`// ❌ Expensive operation on every state change
+store.subscribe(
+  (state) => state.data.filter(item => item.active).sort((a, b) => b.id - a.id),
+  listener // Called on every state change with expensive computation
+);
+
+// ✅ Memoize expensive selectors
+const expensiveSelector = (state) => {
+  // Memoization logic here
+  return computedData;
+};
+`}
+</CodeBlock>
+
+## Common Use Cases
+
+### 1. Logging and Debugging
+<CodeBlock language="typescript">
+{`// Development logging
+if (process.env.NODE_ENV === 'development') {
+  store.subscribe(
+    state => state,
+    (state, prevState) => {
+      console.log('State changed:', { from: prevState, to: state });
+    },
+    { equalityFn: shallow }
+  );
+}
+`}
+</CodeBlock>
+
+### 2. Persistence Layer
+<CodeBlock language="typescript">
+{`// Auto-save to localStorage
+const persistenceUnsubscribe = store.subscribe(
+  state => state.userPreferences,
+  (prefs) => {
+    localStorage.setItem('userPrefs', JSON.stringify(prefs));
+  },
+  { equalityFn: shallow }
+);
+`}
+</CodeBlock>
+
+### 3. Integration with Non-React Code
+<CodeBlock language="typescript">
+{`// Update legacy jQuery components
+const jqueryUnsubscribe = store.subscribe(
+  state => state.theme,
+  (theme) => {
+    $('#app').attr('data-theme', theme);
   }
 );
 `}
@@ -116,4 +246,8 @@ const unsubscribe = useUserStore.subscribe(
 
 <Admonition type="tip" title="React Alternative">
   <p>For React components, prefer the <code>useStore</code> hook instead of manual subscriptions. The hook automatically handles subscription cleanup when the component unmounts.</p>
+</Admonition>
+
+<Admonition type="info" title="Implementation Detail">
+  <p>The subscription system uses a doubly linked list implementation in <code>src/core/subscriptions.ts</code> for optimal O(1) add/remove operations.</p>
 </Admonition>

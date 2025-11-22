@@ -6,224 +6,540 @@ sidebar_label: Testing Stores
 import CodeBlock from '@theme/CodeBlock';
 import { Admonition } from '@site/src/components/Admonition';
 
-# Guides: Testing SoulState Stores
+# Testing SoulState Stores
 
-Testing is a crucial part of building robust applications. SoulState stores are designed to be highly testable due to their pure function nature, clear separation of concerns, and lack of tight coupling to React components. This guide will demonstrate how to effectively test your SoulState stores using common testing frameworks like Jest or Vitest.
+Testing is crucial for building robust applications. SoulState's clean separation between state and actions makes stores highly testable. This guide demonstrates how to effectively test your SoulState stores using common testing frameworks.
 
-## Principles of Testing SoulState Stores
+## Testing Principles
 
-1.  **Isolation**: Test your store logic independently of React components.
-2.  **Pure Functions**: Actions within your store should ideally be pure or easily mockable.
-3.  **Deterministic**: Given the same inputs, actions should produce the same outputs.
-4.  **Focus on Behavior**: Test that actions correctly modify state and that selectors return the expected values.
+1. **Isolation**: Test store logic independently of React components
+2. **Pure Functions**: Actions should be pure or easily mockable
+3. **Deterministic**: Same inputs should produce same outputs
+4. **Behavior Focus**: Test state modifications and selector outputs
 
-## Setting Up Your Test Environment
-
-You'll typically use a test runner like Jest or Vitest. No special setup is required for SoulState itself.
+## Setting Up Test Environment
 
 <CodeBlock language="bash">
-{`npm install --save-dev jest @types/jest # or vitest @types/vitest`}
+{`npm install --save-dev vitest @testing-library/react @testing-library/jest-dom`}
+</CodeBlock>
+
+<CodeBlock language="typescript">
+{`// vitest.config.ts
+import { defineConfig } from 'vitest/config';
+import react from '@vitejs/plugin-react';
+
+export default defineConfig({
+  plugins: [react()],
+  test: {
+    environment: 'jsdom',
+    setupFiles: './tests/setup.ts',
+  },
+});
+
+// tests/setup.ts
+import { expect } from 'vitest';
+import * as matchers from '@testing-library/jest-dom/matchers';
+
+expect.extend(matchers);`}
 </CodeBlock>
 
 ## Testing Basic Store Functionality
 
-Let's consider a simple counter store:
-
+### Counter Store Example
 <CodeBlock language="typescript">
 {`// stores/counterStore.ts
 import { createStore } from 'soulstate';
 
-interface CounterState {
+export interface CounterState {
   count: number;
-  increment: () => void;
-  decrement: () => void;
-  reset: () => void;
 }
 
-export const useCounterStore = createStore<CounterState>((set) => ({
-  count: 0,
-  increment: () => set((state) => ({ count: state.count + 1 })),
-  decrement: () => set((state) => ({ count: state.count - 1 })),
-  reset: () => set({ count: 0 }),
-}));
-`}
+export const counterStore = createStore<CounterState>({
+  count: 0
+});
+
+export const counterActions = {
+  increment: () => counterStore.set(state => ({ count: state.count + 1 })),
+  decrement: () => counterStore.set(state => ({ count: state.count - 1 })),
+  reset: () => counterStore.set({ count: 0 }),
+  incrementBy: (amount: number) => counterStore.set(state => ({ 
+    count: state.count + amount 
+  }))
+};`}
 </CodeBlock>
 
-Now, let's write a test file (`stores/counterStore.test.ts`):
-
+### Test File
 <CodeBlock language="typescript">
-{`import { useCounterStore } from './counterStore';
+{`// stores/counterStore.test.ts
+import { counterStore, counterActions } from './counterStore';
 
 describe('Counter Store', () => {
-  // Reset the store to its initial state before each test
+  // Reset store before each test
   beforeEach(() => {
-    useCounterStore.setState({ count: 0 }); // Directly set state for testing
+    counterStore.set({ count: 0 });
   });
 
-  it('should have an initial count of 0', () => {
-    expect(useCounterStore.getState().count).toBe(0);
+  it('should have initial count of 0', () => {
+    expect(counterStore.get().count).toBe(0);
   });
 
   it('should increment the count', () => {
-    useCounterStore.getState().increment();
-    expect(useCounterStore.getState().count).toBe(1);
+    counterActions.increment();
+    expect(counterStore.get().count).toBe(1);
   });
 
   it('should decrement the count', () => {
-    useCounterStore.getState().decrement();
-    expect(useCounterStore.getState().count).toBe(-1);
+    counterActions.decrement();
+    expect(counterStore.get().count).toBe(-1);
   });
 
   it('should reset the count', () => {
-    useCounterStore.getState().increment(); // count is 1
-    useCounterStore.getState().increment(); // count is 2
-    useCounterStore.getState().reset();
-    expect(useCounterStore.getState().count).toBe(0);
+    counterActions.increment(); // count = 1
+    counterActions.increment(); // count = 2
+    counterActions.reset();
+    expect(counterStore.get().count).toBe(0);
   });
 
-  it('should handle multiple increments and decrements', () => {
-    useCounterStore.getState().increment(); // 1
-    useCounterStore.getState().increment(); // 2
-    useCounterStore.getState().decrement(); // 1
-    useCounterStore.getState().increment(); // 2
-    expect(useCounterStore.getState().count).toBe(2);
+  it('should increment by specific amount', () => {
+    counterActions.incrementBy(5);
+    expect(counterStore.get().count).toBe(5);
   });
-});
-`}
+
+  it('should handle multiple operations', () => {
+    counterActions.increment();    // 1
+    counterActions.increment();    // 2
+    counterActions.decrement();    // 1
+    counterActions.incrementBy(3); // 4
+    expect(counterStore.get().count).toBe(4);
+  });
+});`}
 </CodeBlock>
-
-<Admonition type="tip" title="Direct State Manipulation for Testing">
-  <p>For testing purposes, you can directly manipulate the store's state using <code>store.setState(partialState)</code> or <code>store.getState().action()</code>. This allows you to set up specific test scenarios easily.</p>
-</Admonition>
 
 ## Testing Asynchronous Actions
 
-Testing async actions involves mocking API calls or other side effects.
-
+### User Store with Async Actions
 <CodeBlock language="typescript">
 {`// stores/userStore.ts
 import { createStore } from 'soulstate';
 
-interface User { id: string; name: string; }
-interface UserState {
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+}
+
+export interface UserState {
   user: User | null;
   loading: boolean;
   error: string | null;
-  fetchUser: (id: string) => Promise<void>;
 }
 
-export const useUserStore = createStore<UserState>((set) => ({
+export const userStore = createStore<UserState>({
   user: null,
   loading: false,
-  error: null,
+  error: null
+});
+
+export const userActions = {
   fetchUser: async (id: string) => {
-    set({ loading: true, error: null });
+    userStore.set({ loading: true, error: null });
+    
     try {
-      const response = await fetch('/api/users/' + id);
+      const response = await fetch(\`/api/users/\${id}\`);
       if (!response.ok) throw new Error('Failed to fetch user');
+      
       const user = await response.json();
-      set({ user, loading: false });
-    } catch (error: any) {
-      set({ error: error.message, loading: false });
+      userStore.set({ user, loading: false });
+    } catch (error) {
+      userStore.set({ 
+        error: error instanceof Error ? error.message : 'Unknown error',
+        loading: false 
+      });
     }
   },
-}));
-`}
+
+  clearError: () => {
+    userStore.set({ error: null });
+  }
+};`}
 </CodeBlock>
 
+### Async Action Tests
 <CodeBlock language="typescript">
-{`import { useUserStore } from './userStore';
+{`// stores/userStore.test.ts
+import { userStore, userActions } from './userStore';
+import { vi, describe, it, expect, beforeEach } from 'vitest';
 
-// Mock the global fetch API
-const mockFetch = jest.fn();
+// Mock fetch globally
+const mockFetch = vi.fn();
 global.fetch = mockFetch;
 
 describe('User Store - Async Actions', () => {
   beforeEach(() => {
-    useUserStore.setState({ user: null, loading: false, error: null });
+    userStore.set({ user: null, loading: false, error: null });
     mockFetch.mockClear();
   });
 
-  it('should fetch a user successfully', async () => {
-    const mockUser = { id: '1', name: 'Test User' };
+  it('should fetch user successfully', async () => {
+    const mockUser = { id: '1', name: 'Test User', email: 'test@example.com' };
+    
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: () => Promise.resolve(mockUser),
     });
 
-    await useUserStore.getState().fetchUser('1');
+    await userActions.fetchUser('1');
 
-    expect(useUserStore.getState().loading).toBe(false);
-    expect(useUserStore.getState().user).toEqual(mockUser);
-    expect(useUserStore.getState().error).toBeNull();
+    expect(userStore.get().loading).toBe(false);
+    expect(userStore.get().user).toEqual(mockUser);
+    expect(userStore.get().error).toBeNull();
     expect(mockFetch).toHaveBeenCalledWith('/api/users/1');
   });
 
   it('should handle fetch errors', async () => {
-    const errorMessage = 'Network Error';
     mockFetch.mockResolvedValueOnce({
       ok: false,
-      status: 500,
-      statusText: 'Internal Server Error',
+      status: 404,
+      statusText: 'Not Found',
     });
 
-    await useUserStore.getState().fetchUser('2');
+    await userActions.fetchUser('2');
 
-    expect(useUserStore.getState().loading).toBe(false);
-    expect(useUserStore.getState().user).toBeNull();
-    expect(useUserStore.getState().error).toBe('Failed to fetch user'); // Error from our custom check
+    expect(userStore.get().loading).toBe(false);
+    expect(userStore.get().user).toBeNull();
+    expect(userStore.get().error).toBe('Failed to fetch user');
   });
-});
-`}
+
+  it('should handle network errors', async () => {
+    mockFetch.mockRejectedValueOnce(new Error('Network error'));
+
+    await userActions.fetchUser('3');
+
+    expect(userStore.get().loading).toBe(false);
+    expect(userStore.get().user).toBeNull();
+    expect(userStore.get().error).toBe('Network error');
+  });
+
+  it('should clear errors', () => {
+    userStore.set({ error: 'Some error' });
+    userActions.clearError();
+    
+    expect(userStore.get().error).toBeNull();
+  });
+});`}
 </CodeBlock>
 
-## Testing Subscriptions
-
-You can also test that listeners are correctly invoked when state changes.
+## Testing Store Subscriptions
 
 <CodeBlock language="typescript">
-{`import { useCounterStore } from './counterStore';
+{`// stores/counterStore.test.ts - Subscription tests
+import { counterStore, counterActions } from './counterStore';
 
 describe('Counter Store - Subscriptions', () => {
   beforeEach(() => {
-    useCounterStore.setState({ count: 0 });
+    counterStore.set({ count: 0 });
   });
 
   it('should notify subscribers when count changes', () => {
-    const listener = jest.fn();
-    const unsubscribe = useCounterStore.subscribe(
+    const listener = vi.fn();
+    
+    const unsubscribe = counterStore.subscribe(
       (state) => state.count,
       listener
     );
 
-    useCounterStore.getState().increment();
+    counterActions.increment(); // 0 → 1
 
     expect(listener).toHaveBeenCalledTimes(1);
-    expect(listener).toHaveBeenCalledWith(1, 0); // newCount, prevCount
+    expect(listener).toHaveBeenCalledWith(1, 0); // newValue, oldValue
 
-    useCounterStore.getState().increment();
+    counterActions.increment(); // 1 → 2
     expect(listener).toHaveBeenCalledTimes(2);
     expect(listener).toHaveBeenCalledWith(2, 1);
 
-    unsubscribe(); // Clean up subscription
+    unsubscribe(); // Cleanup
   });
 
-  it('should not notify subscribers if selected state does not change', () => {
-    const listener = jest.fn();
-    const unsubscribe = useCounterStore.subscribe(
-      (state) => state.count > 0, // Selector returns boolean
+  it('should not notify when selected value unchanged', () => {
+    const listener = vi.fn();
+    
+    const unsubscribe = counterStore.subscribe(
+      (state) => state.count > 0, // Returns boolean
       listener
     );
 
-    useCounterStore.getState().increment(); // count becomes 1, selector returns true (0 -> 1)
+    counterActions.increment(); // 0 → 1 (false → true)
     expect(listener).toHaveBeenCalledTimes(1);
     expect(listener).toHaveBeenCalledWith(true, false);
 
-    useCounterStore.getState().increment(); // count becomes 2, selector still returns true (1 -> 2)
-    expect(listener).toHaveBeenCalledTimes(1); // Listener not called again
+    counterActions.increment(); // 1 → 2 (true → true)
+    expect(listener).toHaveBeenCalledTimes(1); // No change in boolean
 
     unsubscribe();
   });
-});
-`}
+
+  it('should stop notifications after unsubscribe', () => {
+    const listener = vi.fn();
+    
+    const unsubscribe = counterStore.subscribe(
+      (state) => state.count,
+      listener
+    );
+
+    counterActions.increment();
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    unsubscribe();
+    
+    counterActions.increment();
+    expect(listener).toHaveBeenCalledTimes(1); // No more calls after unsubscribe
+  });
+});`}
 </CodeBlock>
+
+## Testing Complex Store Interactions
+
+### Multi-Store Coordination
+<CodeBlock language="typescript">
+{`// stores/shoppingCartStore.ts
+import { createStore } from 'soulstate';
+import { productStore } from './productStore';
+
+export interface CartItem {
+  productId: string;
+  quantity: number;
+}
+
+export const cartStore = createStore({
+  items: [] as CartItem[],
+  total: 0
+});
+
+export const cartActions = {
+  addToCart: (productId: string, quantity: number = 1) => {
+    // Check if product exists
+    const product = productStore.get().products.get(productId);
+    if (!product) {
+      throw new Error('Product not found');
+    }
+
+    cartStore.set(state => {
+      const existingItem = state.items.find(item => item.productId === productId);
+      let newItems: CartItem[];
+      
+      if (existingItem) {
+        newItems = state.items.map(item =>
+          item.productId === productId
+            ? { ...item, quantity: item.quantity + quantity }
+            : item
+        );
+      } else {
+        newItems = [...state.items, { productId, quantity }];
+      }
+
+      const total = newItems.reduce((sum, item) => {
+        const product = productStore.get().products.get(item.productId);
+        return sum + (product?.price || 0) * item.quantity;
+      }, 0);
+
+      return { items: newItems, total };
+    });
+  },
+
+  clearCart: () => {
+    cartStore.set({ items: [], total: 0 });
+  }
+};`}
+</CodeBlock>
+
+### Complex Store Tests
+<CodeBlock language="typescript">
+{`// stores/shoppingCartStore.test.ts
+import { cartStore, cartActions } from './shoppingCartStore';
+import { productStore } from './productStore';
+
+describe('Shopping Cart Store', () => {
+  beforeEach(() => {
+    cartStore.set({ items: [], total: 0 });
+    // Setup product store with test data
+    productStore.set({
+      products: new Map([
+        ['prod1', { id: 'prod1', name: 'Product 1', price: 10 }],
+        ['prod2', { id: 'prod2', name: 'Product 2', price: 20 }]
+      ])
+    });
+  });
+
+  it('should add product to cart', () => {
+    cartActions.addToCart('prod1', 2);
+    
+    expect(cartStore.get().items).toEqual([
+      { productId: 'prod1', quantity: 2 }
+    ]);
+    expect(cartStore.get().total).toBe(20); // 2 * 10
+  });
+
+  it('should update quantity when adding existing product', () => {
+    cartActions.addToCart('prod1', 1);
+    cartActions.addToCart('prod1', 2);
+    
+    expect(cartStore.get().items).toEqual([
+      { productId: 'prod1', quantity: 3 }
+    ]);
+    expect(cartStore.get().total).toBe(30);
+  });
+
+  it('should calculate total with multiple products', () => {
+    cartActions.addToCart('prod1', 1); // 10
+    cartActions.addToCart('prod2', 2); // 40
+    
+    expect(cartStore.get().items).toHaveLength(2);
+    expect(cartStore.get().total).toBe(50);
+  });
+
+  it('should throw error for non-existent product', () => {
+    expect(() => {
+      cartActions.addToCart('nonexistent');
+    }).toThrow('Product not found');
+  });
+
+  it('should clear cart', () => {
+    cartActions.addToCart('prod1', 1);
+    cartActions.clearCart();
+    
+    expect(cartStore.get().items).toEqual([]);
+    expect(cartStore.get().total).toBe(0);
+  });
+});`}
+</CodeBlock>
+
+## Testing React Components with Stores
+
+### Component Testing
+<CodeBlock language="tsx">
+{`// components/Counter.test.tsx
+import { render, screen, fireEvent } from '@testing-library/react';
+import { useStore } from 'soulstate/react';
+import { counterStore, counterActions } from '../stores/counterStore';
+import { Counter } from './Counter';
+
+// Mock the store for component testing
+vi.mock('../stores/counterStore', () => ({
+  counterStore: {
+    get: vi.fn(),
+    set: vi.fn(),
+    subscribe: vi.fn()
+  },
+  counterActions: {
+    increment: vi.fn(),
+    decrement: vi.fn()
+  }
+}));
+
+describe('Counter Component', () => {
+  it('should display current count', () => {
+    // Mock store state
+    (counterStore.get as vi.Mock).mockReturnValue({ count: 5 });
+    
+    render(<Counter />);
+    
+    expect(screen.getByText('Count: 5')).toBeInTheDocument();
+  });
+
+  it('should call increment on button click', () => {
+    render(<Counter />);
+    
+    fireEvent.click(screen.getByText('+'));
+    expect(counterActions.increment).toHaveBeenCalledTimes(1);
+  });
+
+  it('should call decrement on button click', () => {
+    render(<Counter />);
+    
+    fireEvent.click(screen.getByText('-'));
+    expect(counterActions.decrement).toHaveBeenCalledTimes(1);
+  });
+});`}
+</CodeBlock>
+
+## Testing Best Practices
+
+### Test Structure Guidelines
+<CodeBlock language="typescript">
+{`// Good test structure example
+describe('StoreName', () => {
+  // Setup before each test
+  beforeEach(() => {
+    store.set(initialState);
+  });
+
+  describe('Action Group', () => {
+    it('should do something', () => {
+      // Arrange
+      const expected = /* expected value */;
+      
+      // Act
+      actions.someAction();
+      
+      // Assert
+      expect(store.get().someProperty).toBe(expected);
+    });
+  });
+
+  describe('Edge Cases', () => {
+    it('should handle empty state', () => {
+      // Test boundary conditions
+    });
+    
+    it('should handle errors gracefully', () => {
+      // Test error scenarios
+    });
+  });
+});`}
+</CodeBlock>
+
+### Mocking Strategies
+<CodeBlock language="typescript">
+{`// Advanced mocking examples
+describe('With Complex Dependencies', () => {
+  it('should mock external services', async () => {
+    // Mock API calls
+    const mockApiResponse = { data: 'test' };
+    vi.spyOn(api, 'fetchData').mockResolvedValue(mockApiResponse);
+    
+    await actions.fetchData();
+    
+    expect(store.get().data).toEqual(mockApiResponse);
+  });
+
+  it('should mock time-dependent logic', () => {
+    vi.useFakeTimers();
+    
+    actions.startTimer();
+    vi.advanceTimersByTime(1000);
+    
+    expect(store.get().timerValue).toBe(1);
+    
+    vi.useRealTimers();
+  });
+});`}
+</CodeBlock>
+
+<Admonition type="success" title="Testing Benefits">
+  <ul>
+    <li>✅ <strong>Isolated Testing</strong>: Stores can be tested without React</li>
+    <li>✅ <strong>Predictable Behavior</strong>: Pure functions make testing reliable</li>
+    <li>✅ <strong>Fast Execution</strong>: No DOM rendering required for store tests</li>
+    <li>✅ <strong>Comprehensive Coverage</strong>: Test state changes, actions, and subscriptions</li>
+  </ul>
+</Admonition>
+
+<Admonition type="tip" title="Pro Testing Tips">
+  <ul>
+    <li>Reset store state before each test for isolation</li>
+    <li>Test both success and error scenarios for async actions</li>
+    <li>Verify subscription behavior with different selectors</li>
+    <li>Mock external dependencies for reliable tests</li>
+    <li>Test edge cases and boundary conditions</li>
+  </ul>
+</Admonition>

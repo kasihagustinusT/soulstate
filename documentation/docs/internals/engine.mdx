@@ -8,73 +8,344 @@ import { Admonition } from '@site/src/components/Admonition';
 
 # Internals: Core Engine Loop
 
-The SoulState core engine is a lean, efficient loop designed to manage state updates and propagate changes with minimal overhead. It orchestrates the interaction between the store's state, the `set` and `get` methods, and the subscription manager.
+The SoulState core engine is a lean, efficient system designed to manage state updates and propagate changes with minimal overhead. It orchestrates the interaction between the store's state, the `set` and `get` methods, and the subscription manager.
 
 ## The `createStore` Factory
 
-At its heart, the engine is instantiated by the `createStore` factory function. This function sets up the initial state, the subscription manager, and the core mechanisms for state manipulation and notification.
+The engine is instantiated by the `createStore` factory function, which sets up the initial state and core mechanisms for state manipulation:
 
 <CodeBlock language="typescript">
-{`export function createStore<T extends object>(initializer: StateCreator<T>): Store<T> {
-  let state: T; // The current state
-  const subscriptionManager = createSubscriptionManager<T>(); // Manages subscribers
+{`// From src/core/store.ts
+export function createStore<T extends object>(initialState: T): Store<T> {
+  let state: T = initialState;
+  const subscriptionManager = createSubscriptionManager<T>();
+  
+  // Batching control
+  let isNotificationScheduled = false;
+  let lastKnownState = state;
 
-  let isNotificationScheduled = false; // Flag for microtask batching
-  let lastKnownState: T; // Used for change detection during notification
-
-  // Initialize state using the provided initializer function
-  const api: Store<T> = { // Forward declaration for 'api'
-    get: () => state,
-    set: (updater) => { /* ... */ },
-    subscribe: (selector, listener, options) => { /* ... */ }
+  const notifySubscribers = () => {
+    subscriptionManager.notify(state, lastKnownState);
+    lastKnownState = state;
+    isNotificationScheduled = false;
   };
-  state = initializer((updater) => api.set(updater), () => api.get(), api);
-  lastKnownState = state; // Initial state for comparison
 
-  // ... (rest of set, subscribe, and notification logic) ...
+  const scheduleNotification = () => {
+    if (!isNotificationScheduled) {
+      isNotificationScheduled = true;
+      queueMicrotask(notifySubscribers);
+    }
+  };
 
-  return api;
+  const get = (): T => state;
+
+  const set = (updater: StateUpdater<T>) => {
+    const partialState = typeof updater === 'function'
+      ? (updater as (state: T) => Partial<T> | T)(state)
+      : updater;
+
+    // Early return for no-op updates
+    if (Object.is(partialState, state) || partialState === undefined) {
+      return;
+    }
+
+    // Change detection - check if values actually changed
+    let hasChanged = false;
+    const updatedKeys = Object.keys(partialState);
+    for (let i = 0; i < updatedKeys.length; i++) {
+      const key = updatedKeys[i] as keyof T;
+      if (!Object.is(state[key], (partialState as T)[key])) {
+        hasChanged = true;
+        break;
+      }
+    }
+
+    if (!hasChanged) {
+      return; // Skip object creation and notifications
+    }
+
+    // Create new state object only when necessary
+    const nextState = { ...state, ...(partialState as Partial<T>) };
+    state = nextState;
+
+    scheduleNotification();
+  };
+
+  const subscribe = <S>(
+    selector: (state: T) => S,
+    listener: (selectedState: S, prevSelectedState: S) => void,
+    options?: { equalityFn?: (a: S, b: S) => boolean }
+  ) => {
+    return subscriptionManager.subscribe(selector, listener, options?.equalityFn, state);
+  };
+
+  return { get, set, subscribe };
 }
 `}
 </CodeBlock>
 
 ## State Management Flow
 
-The core engine loop can be visualized as a continuous cycle of:
-
-1.  **Action Invocation**: An action (e.g., `increasePopulation`) is called, which internally uses `store.set()`.
-2.  **State Update**: `store.set()` calculates the next state, applying structural sharing.
-3.  **Notification Scheduling**: If a change occurred, `store.set()` schedules a notification to run in the microtask queue.
-4.  **Microtask Execution**: The JavaScript event loop picks up the scheduled notification.
-5.  **Subscriber Notification**: The `subscriptionManager` iterates through its linked list of subscribers.
-6.  **Selector & Equality Check**: For each subscriber, its selector runs, and the result is compared with the last known selected state.
-7.  **Listener Invocation**: If the selected state has truly changed, the subscriber's listener (which typically triggers a React re-render) is invoked.
+The core engine operates through a continuous optimization cycle:
 
 ```mermaid
 graph TD
-    A[User Action / API Call] --> B{store.set(updater)};
-    B --> C{Calculate nextState};
-    C -- "State changed?" -->|Yes| D{Schedule notify() in Microtask};
-    C -- "State changed?" -->|No| E[End];
-    D --> F[Microtask Queue];
-    F --> G{Execute notify()};
-    G --> H{subscriptionManager.notify()};
-    H --> I{Iterate Subscribers};
-    I --> J{Run Selector & Equality Check};
-    J -- "Selected state changed?" -->|Yes| K[Invoke Listener (e.g., React re-render)];
-    J -- "Selected state changed?" -->|No| L[Skip Listener];
-    K --> M[UI Updates];
-    L --> I;
-    M --> E;
-    E --> A;
+    A[Action Triggered] --> B[store.set(updater)];
+    B --> C{Change Detection};
+    C -->|No Changes| D[Early Return];
+    C -->|Changes Found| E[Structural Sharing];
+    E --> F{Notification Scheduled?};
+    F -->|No| G[Schedule Microtask];
+    F -->|Yes| H[Skip Scheduling];
+    G --> I[Microtask Queue];
+    H --> I;
+    I --> J[Execute notifySubscribers];
+    J --> K[Linked List Traversal];
+    K --> L{Run Selector & Equality Check};
+    L -->|Changed| M[Trigger Re-render];
+    L -->|Unchanged| N[Skip];
+    M --> O[UI Updates];
+    N --> K;
 ```
 
-## Key Engine Principles
+## Engine Execution Phases
 
--   **Single Source of Truth**: The `state` variable within the `createStore` closure is the definitive current state.
--   **Immutability**: All state updates create new state objects. Direct mutation is strictly avoided to ensure predictable change detection.
--   **Microtask-based Batching**: Ensures that all `set` calls within a single event loop tick are coalesced into one notification, preventing UI tearing and optimizing renders.
--   **Lazy Evaluation**: Selectors are only run during the notification phase, and only for the specific subscribers that need them.
--   **O(1) Subscription Management**: The underlying linked list ensures that adding and removing subscribers is extremely fast, regardless of the total number of subscriptions.
+### Phase 1: State Update
 
-This tightly integrated loop ensures that SoulState remains highly performant and predictable, even in complex applications with frequent state changes.
+<CodeBlock language="typescript">
+{`// 1. Update calculation
+const partialState = typeof updater === 'function' ? updater(state) : updater;
+
+// 2. Early optimization checks
+if (Object.is(partialState, state) || partialState === undefined) {
+  return; // No changes needed
+}
+
+// 3. Change detection
+let hasChanged = false;
+const updatedKeys = Object.keys(partialState);
+for (let i = 0; i < updatedKeys.length; i++) {
+  const key = updatedKeys[i] as keyof T;
+  if (!Object.is(state[key], (partialState as T)[key])) {
+    hasChanged = true;
+    break; // Early exit on first change
+  }
+}
+
+// 4. Structural sharing only when necessary
+if (!hasChanged) return;
+const nextState = { ...state, ...(partialState as Partial<T>) };
+state = nextState;
+`}
+</CodeBlock>
+
+### Phase 2: Notification Scheduling
+
+<CodeBlock language="typescript">
+{`// Microtask batching logic
+const scheduleNotification = () => {
+  if (!isNotificationScheduled) {
+    isNotificationScheduled = true;
+    queueMicrotask(notifySubscribers); // Deferred execution
+  }
+};
+
+// Multiple updates → single notification
+store.set({ a: 1 }); // First call → schedule
+store.set({ b: 2 }); // Already scheduled → skip
+store.set({ c: 3 }); // Already scheduled → skip
+// Single microtask with all changes
+`}
+</CodeBlock>
+
+### Phase 3: Subscriber Notification
+
+<CodeBlock language="typescript">
+{`// From src/core/subscriptions.ts
+const notify = (newState: T, prevState: T) => {
+  if (Object.is(newState, prevState)) return;
+
+  // Efficient linked list traversal
+  let current = head;
+  while (current) {
+    const sub = current;
+    const newSelectedState = sub.selector(newState);
+    const lastState = sub.lastState;
+
+    // Selective notification
+    if (!sub.equalityFn(newSelectedState, lastState)) {
+      sub.lastState = newSelectedState;
+      sub.listener(newSelectedState, lastState); // Trigger re-render
+    }
+
+    current = current.next;
+  }
+};
+`}
+</CodeBlock>
+
+## Performance Optimizations
+
+### Change Detection
+
+SoulState prevents unnecessary work through intelligent change detection:
+
+<CodeBlock language="typescript">
+{`// Instead of blind object creation:
+// const nextState = { ...state, ...partialState }; // ❌ Always creates new object
+
+// SoulState checks first:
+let hasChanged = false;
+for (let key in partialState) {
+  if (!Object.is(state[key], partialState[key])) {
+    hasChanged = true;
+    break;
+  }
+}
+if (hasChanged) {
+  const nextState = { ...state, ...partialState }; // ✅ Only when needed
+}
+`}
+</CodeBlock>
+
+### Memory Management
+
+<CodeBlock language="typescript">
+{`// Single state reference
+let state: T = initialState; // Only one state object in memory
+
+// Efficient subscription cleanup
+const unsubscribe = store.subscribe(selector, listener);
+// Later: O(1) removal from linked list
+unsubscribe(); // No memory leaks
+`}
+</CodeBlock>
+
+## Engine Integration Points
+
+### React Integration
+
+<CodeBlock language="typescript">
+{`// From src/react/useStore.ts
+export function useStore<T, S>(
+  store: Store<T>,
+  selector: (state: T) => S,
+  equalityFn: (a: S, b: S) => boolean = objectIs
+): S {
+  const getSnapshot = React.useCallback(() => selector(store.get()), [store, selector]);
+
+  const subscribe = React.useCallback(
+    (onStoreChange: () => void) => {
+      // Engine's subscribe method
+      const unsubscribe = store.subscribe(selector, onStoreChange, { equalityFn });
+      return unsubscribe;
+    },
+    [store, selector, equalityFn]
+  );
+
+  const value = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+  return value;
+}
+`}
+</CodeBlock>
+
+### Utility Integration
+
+<CodeBlock language="typescript">
+{`// Equality functions used by the engine
+import { objectIs, shallow } from 'soulstate/utils';
+
+// Default equality check
+store.subscribe(selector, listener); // Uses objectIs
+
+// Shallow object comparison  
+store.subscribe(selector, listener, { equalityFn: shallow });
+`}
+</CodeBlock>
+
+## Engine Characteristics
+
+### Time Complexity
+- **State Updates**: O(k) where k = changed properties
+- **Subscription Management**: O(1) for add/remove
+- **Notifications**: O(n) where n = active subscriptions
+
+### Memory Footprint
+- **Store**: O(1) additional memory
+- **Subscriptions**: O(n) where n = active subscriptions
+- **No History**: Single state reference only
+
+### Concurrency Safety
+- **Synchronous Updates**: Thread-safe in JavaScript's single-threaded environment
+- **Microtask Batching**: Prevents race conditions between updates
+- **Immutable State**: No concurrent modification issues
+
+## Real-World Engine Behavior
+
+### Rapid Updates Scenario
+
+<CodeBlock language="typescript">
+{`// Animation frame - multiple rapid updates
+const animate = () => {
+  store.set({ x: mouseX, y: mouseY });      // 🚫 No immediate notification
+  store.set({ velocity: calcVelocity() });  // 🚫 No immediate notification
+  store.set({ frame: frameCount++ });       // 🚫 No immediate notification
+  
+  // ✅ Single notification after all updates
+  requestAnimationFrame(animate);
+};
+`}
+</CodeBlock>
+
+### Form Handling Scenario
+
+<CodeBlock language="typescript">
+{`// Form submission - multiple related updates
+const handleSubmit = (data) => {
+  store.set({ submitting: true });          // 🚫
+  store.set({ errors: {} });                // 🚫
+  store.set({ lastAttempt: Date.now() });   // 🚫
+  
+  // Process data...
+  store.set({ data, submitting: false });   // New batch (async)
+  
+  // ✅ Maximum 2 re-renders instead of 5
+};
+`}
+</CodeBlock>
+
+## Engine Extension Points
+
+### Custom Equality Functions
+
+<CodeBlock language="typescript">
+{`// Custom comparison logic
+const customEquality = (a, b) => a.id === b.id;
+
+store.subscribe(
+  state => state.user,
+  (user, prevUser) => console.log('User changed'),
+  { equalityFn: customEquality }
+);
+`}
+</CodeBlock>
+
+### Selective Subscription Patterns
+
+<CodeBlock language="typescript">
+{`// Surgical subscriptions for optimal performance
+const userName = useStore(store, state => state.user.name);
+const userEmail = useStore(store, state => state.user.email);
+const isActive = useStore(store, state => state.user.active);
+
+// Each subscription independent and optimized
+`}
+</CodeBlock>
+
+<Admonition type="success" title="Engine Summary">
+  <p>The SoulState core engine combines intelligent change detection, microtask batching, and O(1) subscription management to deliver exceptional performance. By optimizing every phase of the update cycle, it ensures minimal overhead while maintaining perfect consistency and developer-friendly semantics.</p>
+</Admonition>
+
+<Admonition type="info" title="Design Philosophy">
+  <p>SoulState's engine prioritizes predictability and performance. Every optimization is designed to work automatically, requiring no configuration or manual intervention from developers.</p>
+</Admonition>

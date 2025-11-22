@@ -4,141 +4,389 @@ sidebar_label: Large-Scale Architecture
 ---
 
 import CodeBlock from '@theme/CodeBlock';
-import { Admonition } from '@site/src/components/Admonition';
+import Admonition from '@theme/Admonition';
 
-# Guides: Large-Scale State Architecture with SoulState
+# Large-Scale State Architecture with SoulState
 
-Building large-scale applications presents unique challenges for state management. SoulState, with its performance-first design and flexible API, provides a solid foundation. This guide outlines architectural patterns and considerations for managing state effectively in complex, enterprise-grade applications.
+Building large-scale applications requires careful state architecture. SoulState's performance-first design provides a solid foundation for complex, enterprise-grade applications when combined with proper architectural patterns.
 
-## Principles for Large-Scale Applications
+## Core Principles for Scale
 
-1.  **Modularity**: Break down state into small, independent, and reusable units.
-2.  **Clear Ownership**: Each piece of state should have a single, well-defined owner (its store).
-3.  **Explicit Dependencies**: State interactions between different modules should be clear and intentional.
-4.  **Performance by Default**: Leverage SoulState's core optimizations (selectors, batching, O(1) subscriptions).
-5.  **Testability**: Design stores and actions to be easily testable in isolation.
+1. **Modularity**: Break state into small, independent stores
+2. **Clear Ownership**: Each domain owns its state and actions
+3. **Explicit Dependencies**: Clear communication between modules
+4. **Performance First**: Leverage SoulState's built-in optimizations
+5. **Testability**: Design stores and actions for isolated testing
 
 ## Architectural Patterns
 
-### 1. Domain-Driven Stores
+### 1. Domain-Driven Store Organization
 
-Organize your stores around business domains rather than UI components. This makes your state logic more resilient to UI changes and easier to understand for domain experts.
+Organize stores around business domains rather than UI components. This creates clear boundaries and makes state logic resilient to UI changes.
 
 <CodeBlock language="typescript">
-{`// domain/products/productStore.ts
-export const useProductStore = createStore<ProductState>(...);
+{`// Store structure by business domain
+// domains/products/productStore.ts
+const productStore = createStore({
+  // Product-specific state
+});
 
-// domain/orders/orderStore.ts
-export const useOrderStore = createStore<OrderState>(...);
+// domains/orders/orderStore.ts  
+const orderStore = createStore({
+  // Order-specific state
+});
 
-// domain/notifications/notificationStore.ts
-export const useNotificationStore = createStore<NotificationState>(...);
-`}
+// domains/users/userStore.ts
+const userStore = createStore({
+  // User-specific state
+});`}
 </CodeBlock>
 
-### 2. Feature-Sliced Design
+### 2. Feature-Sliced Architecture
 
-Combine domain-driven stores with a feature-sliced architecture. Each feature (e.g., User Management, Product Catalog, Analytics) can have its own set of stores, components, and services.
+Combine domain-driven stores with feature-based organization for optimal team scalability and code ownership.
 
-```
+<CodeBlock>
+{`// Recommended project structure
 src/
-├── features/
-│   ├── user-management/
-│   │   ├── components/
-│   │   ├── stores/userStore.ts
-│   │   └── services/userService.ts
-│   ├── product-catalog/
-│   │   ├── components/
-│   │   ├── stores/productStore.ts
-│   │   └── services/productService.ts
-│   └── shared/
-│       ├── stores/uiStore.ts
-│       └── components/
-├── app/
-├── pages/
-└── ...
-```
-
-### 3. Global vs. Local State
-
--   **Global State (SoulState)**: Data that needs to be accessed or shared across many components, or that represents core application logic (e.g., authentication, user data, global settings, fetched data).
--   **Local State (React `useState`/`useReducer`)**: UI-specific state that is only relevant to a single component or a small, isolated subtree (e.g., form input values, modal open/close state, temporary UI flags).
-
-<Admonition type="tip" title="When to use local state?">
-  <p>If a piece of state is only used by one component and doesn't need to be shared or persisted, <code>useState</code> is often the simpler and more appropriate choice.</p>
-</Admonition>
-
-## Advanced Considerations
-
-### Data Normalization
-
-For applications dealing with complex, relational data (e.g., a list of users where each user has multiple posts), consider normalizing your data within your SoulState stores. This means storing entities in a flat structure, referenced by their IDs.
-
-<CodeBlock language="typescript">
-{`interface NormalizedState {
-  users: { [id: string]: User };
-  posts: { [id: string]: Post };
-  // ... other entities
-}
-
-export const useNormalizedStore = createStore<NormalizedState>((set) => ({
-  users: {},
-  posts: {},
-  // ... actions to add/update entities
-}));
-`}
+├── domains/           # Business domain stores
+│   ├── products/      # Product domain logic
+│   ├── orders/        # Order domain logic  
+│   └── users/         # User domain logic
+├── features/          # Feature modules
+│   ├── product-catalog/    # Uses product store
+│   ├── order-management/   # Uses order store
+│   └── shared/             # Cross-cutting concerns
+├── app/               # App configuration and routing
+└── lib/               # Utilities and services`}
 </CodeBlock>
 
-This pattern helps:
--   Reduce data duplication.
--   Simplify updates (update an entity once, and all references are updated).
--   Improve selector performance.
+### 3. Global vs Local State Strategy
 
-### Inter-Store Communication
+**Use SoulState for global state:**
+- Data shared across multiple components
+- Server state and API responses
+- Complex business logic state
+- Persistent user preferences and settings
 
-For complex interactions between modular stores:
-
--   **Direct Action Calls**: One store's action can call another store's action (e.g., `useAuthStore.getState().login().then(...)`).
--   **Subscriptions**: One store can subscribe to changes in another store using `store.subscribe()` for reactive updates.
--   **Event Bus (Advanced)**: For very decoupled systems, a lightweight event bus (not part of SoulState core) can be used to dispatch events that multiple stores might listen to.
-
-<Admonition type="caution" title="Manage Dependencies Carefully">
-  <p>When stores interact, be vigilant about circular dependencies. Design your stores to be as independent as possible, and use explicit communication channels.</p>
-</Admonition>
-
-### Server-Side Rendering (SSR) / Server Components
-
-SoulState stores can be hydrated on the client-side with initial state from the server.
-
-1.  **Create a singleton store** on the client.
-2.  **Fetch initial data** in your server component.
-3.  **Pass initial data** to a client component.
-4.  **Hydrate the store** in a `useEffect` hook in the client component.
+**Use React local state for local state:**
+- Component-specific UI state
+- Form inputs and temporary values
+- Simple toggle states and visibility flags
+- Ephemeral component state
 
 <CodeBlock language="tsx">
-{`// lib/store.ts (Client-side singleton)
-export const useAppStore = createStore(initialState);
-
-// app/page.tsx (Server Component)
-async function getData() { /* fetch data */ return { user: 'Admin' }; }
-export default async function Page() {
-  const data = await getData();
-  return <ClientWrapper initialData={data} />;
-}
-
-// app/client-wrapper.tsx (Client Component)
-'use client';
-import { useAppStore } from '../lib/store';
-import { useEffect } from 'react';
-export function ClientWrapper({ initialData }) {
-  useEffect(() => {
-    useAppStore.setState(initialData); // Hydrate the store
-  }, [initialData]);
-  // ... render children that use useAppStore
-}
-`}
+{`// Example: Mixed state strategy
+function UserProfile() {
+  // SoulState for shared data
+  const user = useStore(userStore, state => state.currentUser);
+  
+  // React state for local UI
+  const [isEditing, setIsEditing] = React.useState(false);
+  
+  return (
+    <div>
+      <h1>{user.name}</h1>
+      {isEditing && <EditForm />}
+    </div>
+  );
+}`}
 </CodeBlock>
 
-## Conclusion
+## Advanced Data Management Patterns
 
-SoulState's minimalist yet powerful design, combined with these architectural patterns, provides a robust and performant foundation for even the most demanding large-scale applications. By focusing on modularity, explicit control, and leveraging SoulState's core optimizations, you can build highly scalable and maintainable state management solutions.
+### Data Normalization with Maps
+
+For applications with complex relational data, use Maps for optimal performance with large datasets.
+
+<CodeBlock language="typescript">
+{`// Normalized state structure
+const dataStore = createStore({
+  // Use Maps for O(1) lookups and updates
+  users: new Map(),       // userId -> User
+  products: new Map(),    // productId -> Product
+  orders: new Map(),      // orderId -> Order
+  
+  // Lookup indices for relationships
+  userOrders: new Map(),  // userId -> orderId[]
+});
+
+// Actions work with normalized data
+const dataActions = {
+  updateUser: (userId, updates) => {
+    dataStore.set(state => {
+      const newUsers = new Map(state.users);
+      newUsers.set(userId, { ...newUsers.get(userId), ...updates });
+      return { users: newUsers };
+    });
+  }
+};`}
+</CodeBlock>
+
+### Derived State with Selectors
+
+Create reusable selectors for complex data transformations and computed values.
+
+<CodeBlock language="typescript">
+{`// Selector patterns for derived state
+const userSelectors = {
+  // Filter and transform data
+  getActiveUsers: (state) => 
+    Array.from(state.users.values()).filter(user => user.isActive),
+  
+  // Compute statistics
+  getUserStats: (state) => {
+    const users = Array.from(state.users.values());
+    return {
+      total: users.length,
+      active: users.filter(u => u.isActive).length,
+      admins: users.filter(u => u.role === 'admin').length
+    };
+  },
+  
+  // Find specific entities
+  getUserById: (state, userId) => state.users.get(userId)
+};
+
+// Usage in components
+const activeUsers = useStore(userStore, userSelectors.getActiveUsers);`}
+</CodeBlock>
+
+## Cross-Store Communication Patterns
+
+### Coordinated Actions
+
+Coordinate complex operations that span multiple domains through dedicated action coordinators.
+
+<CodeBlock language="typescript">
+{`// Action coordination service
+const orderCoordinator = {
+  createOrder: async (productIds, userData) => {
+    // 1. Validate products exist
+    await productActions.validateProducts(productIds);
+    
+    // 2. Create order record
+    const order = await orderActions.createOrder({
+      products: productIds,
+      user: userData
+    });
+    
+    // 3. Update inventory
+    await productActions.updateInventory(productIds);
+    
+    // 4. Notify user
+    notificationActions.addNotification({
+      type: 'success',
+      message: 'Order created successfully'
+    });
+    
+    return order;
+  }
+};`}
+</CodeBlock>
+
+### Reactive Store Subscriptions
+
+Use store subscriptions for reactive updates across domain boundaries.
+
+<CodeBlock language="typescript">
+{`// Cross-store reactivity
+const setupStoreReactivity = () => {
+  // Subscribe to auth changes to load user profile
+  const unsubscribe = authStore.subscribe(
+    state => state.currentUser,
+    (user, prevUser) => {
+      if (user && !prevUser) {
+        // Automatically load profile when user logs in
+        userActions.loadUserProfile(user.id);
+      }
+    }
+  );
+  
+  return unsubscribe;
+};
+
+// Initialize in app setup
+// useEffect(() => {
+//   const unsubscribe = setupStoreReactivity();
+//   return unsubscribe;
+// }, []);`}
+</CodeBlock>
+
+## Performance Optimization at Scale
+
+### Selective Subscription Strategy
+
+Optimize list rendering with row-level components that subscribe only to their specific data.
+
+<CodeBlock language="tsx">
+{`// Optimized list pattern
+function ProductList() {
+  // Subscribe only to product IDs, not the entire products map
+  const productIds = useStore(
+    productStore,
+    state => Array.from(state.products.keys())
+  );
+
+  return (
+    <div>
+      {productIds.map(id => (
+        <ProductListItem key={id} productId={id} />
+      ))}
+    </div>
+  );
+}
+
+// Each item subscribes only to its own data
+function ProductListItem({ productId }) {
+  const product = useStore(
+    productStore,
+    state => state.products.get(productId)
+  );
+
+  return <div>{product?.name}</div>;
+}`}
+</CodeBlock>
+
+### Memoized Selectors for Expensive Computations
+
+Memoize selectors that perform expensive operations to avoid redundant calculations.
+
+<CodeBlock language="typescript">
+{`// Memoization utility
+function memoize(fn) {
+  const cache = new Map();
+  return (...args) => {
+    const key = JSON.stringify(args);
+    if (cache.has(key)) return cache.get(key);
+    const result = fn(...args);
+    cache.set(key, result);
+    return result;
+  };
+}
+
+// Memoized selectors
+const productSelectors = {
+  getExpensiveReport: memoize((state, filters) => {
+    // Expensive filtering and sorting
+    return complexDataProcessing(state.products, filters);
+  })
+};`}
+</CodeBlock>
+
+## Server-Side Rendering Strategy
+
+### Store Hydration Pattern
+
+Hydrate client-side stores with server data for seamless SSR integration.
+
+<CodeBlock language="tsx">
+{`// Store hydration component
+function StoreHydrator({ initialData, children }) {
+  React.useEffect(() => {
+    // Hydrate stores with server-provided data
+    if (initialData.user) {
+      userStore.set({ currentUser: initialData.user });
+    }
+    if (initialData.products) {
+      productStore.set({ products: new Map(initialData.products) });
+    }
+  }, [initialData]);
+
+  return <>{children}</>;
+}
+
+// Usage in app entry point
+function App({ serverData }) {
+  return (
+    <StoreHydrator initialData={serverData}>
+      <ApplicationRouter />
+    </StoreHydrator>
+  );
+}`}
+</CodeBlock>
+
+## Store Composition and Factory Patterns
+
+### Composed Stores for Complex Features
+
+Create composed stores that coordinate multiple domains for specific features.
+
+<CodeBlock language="typescript">
+{`// Composed store for dashboard feature
+const dashboardStore = createStore({
+  // Dashboard-specific state
+  isLoading: false,
+  lastUpdated: null
+});
+
+const dashboardActions = {
+  loadDashboardData: async () => {
+    dashboardStore.set({ isLoading: true });
+    
+    // Load data from multiple domains
+    await Promise.all([
+      userActions.fetchUsers(),
+      productActions.fetchProducts(),
+      orderActions.fetchRecentOrders()
+    ]);
+    
+    dashboardStore.set({ 
+      isLoading: false,
+      lastUpdated: new Date()
+    });
+  }
+};`}
+</CodeBlock>
+
+### Store Factory Pattern
+
+Use factory functions for creating feature-specific stores with dependencies.
+
+<CodeBlock language="typescript">
+{`// Store factory pattern
+const createFeatureStore = (dependencies) => {
+  const store = createStore({
+    // Initial state
+  });
+
+  const actions = {
+    // Actions that use dependencies
+    someAction: () => {
+      const otherState = dependencies.otherStore.get();
+      // Use other store's state
+    }
+  };
+
+  return { store, actions };
+};
+
+// Create feature store with dependencies
+const { store, actions } = createFeatureStore({
+  userStore,
+  productStore
+});`}
+</CodeBlock>
+
+<Admonition type="success" title="Large-Scale Benefits">
+<ul>
+  <li>✅ **Modular Architecture**: Scales with team size and application complexity</li>
+  <li>✅ **Performance Optimized**: Built-in O(1) subscriptions and microtask batching</li>
+  <li>✅ **Type-Safe**: Full TypeScript support for large codebases</li>
+  <li>✅ **Testable**: Isolated stores and actions enable comprehensive testing</li>
+  <li>✅ **Flexible Communication**: Multiple patterns for cross-store interaction</li>
+  <li>✅ **Memory Efficient**: Structural sharing minimizes object creation</li>
+</ul>
+</Admonition>
+
+<Admonition type="tip" title="Pro Tips for Scale">
+<ul>
+  <li>**Start with domains**: Begin with domain-driven stores from day one</li>
+  <li>**Use Maps for performance**: Prefer Maps over arrays for large, frequently updated datasets</li>
+  <li>**Implement surgical subscriptions**: Use row-level components for large lists</li>
+  <li>**Create reusable selectors**: Build selector libraries for complex data transformations</li>
+  <li>**Establish clear boundaries**: Define explicit communication patterns between domains</li>
+  <li>**Monitor performance**: Use React DevTools to identify unnecessary re-renders</li>
+  <li>**Plan for testing**: Design stores and actions with testability in mind</li>
+</ul>
+</Admonition>

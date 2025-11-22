@@ -8,7 +8,7 @@ import { Admonition } from '@site/src/components/Admonition';
 
 # API: React Hooks
 
-SoulState provides a set of powerful React hooks for declaratively binding your components to the store. These hooks are built on top of `React.useSyncExternalStore` for full compatibility with React 18's concurrent features.
+SoulState provides powerful React hooks for declaratively binding your components to the store. These hooks are built on top of `React.useSyncExternalStore` for full compatibility with React 18's concurrent features.
 
 ## `useStore`
 
@@ -27,10 +27,10 @@ This is the primary hook for consuming state in your components. It creates a su
 
 ### Parameters
 
-1.  **`store`**: The store instance returned by `createStore`.
-2.  **`selector`**: A function that receives the entire state and returns the desired value or object. The component will subscribe to changes in this returned value.
-3.  **`equalityFn`** (optional): A function to compare the previous and current selected values. If the function returns `true`, the component will not re-render.
-    - **Default**: `Object.is` (strict reference equality).
+1. **`store`**: The store instance returned by `createStore`.
+2. **`selector`**: A function that receives the entire state and returns the desired value or object. The component will subscribe to changes in this returned value.
+3. **`equalityFn`** (optional): A function to compare the previous and current selected values. If the function returns `true`, the component will not re-render.
+   - **Default**: `Object.is` (strict reference equality).
 
 ### Return Value
 
@@ -43,43 +43,76 @@ The component re-renders only when `state.count` changes.
 
 <CodeBlock language="tsx">
 {`import { useStore } from 'soulstate/react';
-import { useCounterStore } from './store';
+import { counterStore } from './store';
 
 function CounterDisplay() {
-  const count = useStore(useCounterStore, (state) => state.count);
+  const count = useStore(counterStore, (state) => state.count);
   return <div>Count: {count}</div>;
 }
 `}
 </CodeBlock>
 
-**2. Selecting an action:**
-The component will likely never re-render from this hook, as action functions are typically stable.
+**2. Selecting multiple values with independent subscriptions:**
+Each subscription is independent and optimized.
 
 <CodeBlock language="tsx">
-{`function Controls() {
-  const increment = useStore(useCounterStore, (state) => state.increment);
-  return <button onClick={increment}>Increment</button>;
+{`function UserProfile() {
+  const username = useStore(userStore, (state) => state.username);
+  const email = useStore(userStore, (state) => state.email);
+  const isActive = useStore(userStore, (state) => state.isActive);
+
+  return (
+    <div>
+      <p>Username: {username}</p>
+      <p>Email: {email}</p>
+      <p>Status: {isActive ? 'Active' : 'Inactive'}</p>
+    </div>
+  );
+}
+`}
+</CodeBlock>
+
+**3. Using actions from separate exports:**
+Actions are typically imported directly, not selected from store.
+
+<CodeBlock language="tsx">
+{`import { counterActions } from './store';
+
+function Controls() {
+  return <button onClick={counterActions.increment}>Increment</button>;
 }
 `}
 </CodeBlock>
 
 <Admonition type="caution" title="Selector Best Practices">
   <p>Always define selectors outside the component or memoize them with <code>React.useCallback</code> if they depend on props. This prevents the subscription from being torn down and recreated on every render.</p>
-  
-  <p><strong>Good:</strong></p>
-  <CodeBlock language="javascript">
-    {`const selectCount = state => state.count;
-function Cmp() {
-  const count = useStore(store, selectCount);
+
+  <p><strong>Good (static selector):</strong></p>
+  <CodeBlock language="typescript">
+    {`const selectCount = (state) => state.count;
+function Counter() {
+  const count = useStore(counterStore, selectCount);
   // ...
 }`}
   </CodeBlock>
 
-  <p><strong>Also Good (if selector depends on props):</strong></p>
-  <CodeBlock language="javascript">
-    {`function Cmp({ id }) {
-  const selectItem = useCallback(state => state.items[id], [id]);
-  const item = useStore(store, selectItem);
+  <p><strong>Good (dynamic selector with props):</strong></p>
+  <CodeBlock language="typescript">
+    {`function TodoItem({ id }) {
+  const selectTodo = useCallback(
+    (state) => state.todos.find(todo => todo.id === id),
+    [id]
+  );
+  const todo = useStore(todoStore, selectTodo);
+  // ...
+}`}
+  </CodeBlock>
+
+  <p><strong>Avoid (inline selector):</strong></p>
+  <CodeBlock language="typescript">
+    {`function Counter() {
+  // ❌ Creates new function on every render
+  const count = useStore(counterStore, (state) => state.count);
   // ...
 }`}
   </CodeBlock>
@@ -87,31 +120,37 @@ function Cmp() {
 
 ---
 
-## `shallow`
+## `useShallow`
 
-A built-in equality function used for efficiently subscribing to multiple state properties at once. It performs a shallow comparison of the properties of an object.
+A convenience hook that combines `useStore` with shallow equality comparison. Perfect for selecting multiple properties into an object.
 
 ### Signature
 
 <CodeBlock language="typescript">
-{`function shallow<T>(objA: T, objB: T): boolean;
+{`function useShallow<T, S>(
+  store: Store<T>,
+  selector: (state: T) => S
+): S;
 `}
 </CodeBlock>
 
 ### Usage
 
-Use `shallow` as the third argument to `useStore` when your selector returns a new object. This prevents re-renders as long as the shallow properties of the returned object are the same.
+Use `useShallow` when your selector returns a new object containing multiple properties.
 
 <CodeBlock language="tsx">
-{`import { useStore, shallow } from 'soulstate/react';
-import { useUserStore } from './store';
+{`import { useShallow } from 'soulstate/react';
+import { userStore } from './store';
 
 function UserProfile() {
   // Select multiple properties into a new object
-  const { username, email } = useStore(
-    useUserStore,
-    (state) => ({ username: state.username, email: state.email }),
-    shallow // Compare the contents of the returned object
+  const { username, email, preferences } = useShallow(
+    userStore,
+    (state) => ({
+      username: state.username,
+      email: state.email,
+      preferences: state.preferences
+    })
   );
 
   return (
@@ -124,6 +163,131 @@ function UserProfile() {
 `}
 </CodeBlock>
 
-<Admonition type="danger" title="Anti-Pattern without `shallow`">
-  <p>Without <code>shallow</code>, the <code>UserProfile</code> component above would re-render on <strong>every</strong> state change in the entire store. This is because the selector <code>(state) => ({`{...}`})</code> creates a new object with a new reference on every execution, causing the default <code>Object.is</code> equality check to always fail.</p>
+---
+
+## `shallow` Equality Function
+
+The standalone shallow equality function, also available for use with `useStore`.
+
+### Import Path
+
+<CodeBlock language="typescript">
+{`import { shallow } from 'soulstate/utils';
+`}
+</CodeBlock>
+
+### Usage with `useStore`
+
+<CodeBlock language="tsx">
+{`import { useStore } from 'soulstate/react';
+import { shallow } from 'soulstate/utils';
+
+function UserProfile() {
+  const userData = useStore(
+    userStore,
+    (state) => ({
+      username: state.username,
+      email: state.email
+    }),
+    shallow // Explicit shallow comparison
+  );
+
+  return <div>{userData.username}</div>;
+}
+`}
+</CodeBlock>
+
+<Admonition type="danger" title="Anti-Pattern without Proper Equality">
+  <p>Without <code>shallow</code> or <code>useShallow</code>, components that select multiple properties into objects will re-render on <strong>every</strong> state change. This happens because the selector creates a new object reference on every execution.</p>
+
+  <CodeBlock language="tsx">
+    {`// ❌ Re-renders on every state change
+const userData = useStore(
+  userStore,
+  (state) => ({ username: state.username, email: state.email })
+  // Missing equalityFn - uses Object.is which always fails for new objects
+);
+
+// ✅ Only re-renders when username or email actually change  
+const userData = useStore(
+  userStore,
+  (state) => ({ username: state.username, email: state.email }),
+  shallow
+);`}
+  </CodeBlock>
+</Admonition>
+
+---
+
+## Performance Patterns
+
+### Multiple Independent Subscriptions vs Object Selection
+
+<CodeBlock language="tsx">
+{`// ✅ Pattern 1: Independent subscriptions (most granular)
+function UserProfile() {
+  const username = useStore(userStore, state => state.username);
+  const email = useStore(userStore, state => state.email);
+  // Each updates independently when respective property changes
+}
+
+// ✅ Pattern 2: Object selection with shallow (convenient)
+function UserProfile() {
+  const { username, email } = useShallow(userStore, state => ({
+    username: state.username,
+    email: state.email
+  }));
+  // Updates when either username OR email changes
+}
+
+// ❌ Pattern 3: Object selection without equality (inefficient)
+function UserProfile() {
+  const { username, email } = useStore(userStore, state => ({
+    username: state.username,
+    email: state.email
+  }));
+  // Updates on EVERY state change
+}
+`}
+</CodeBlock>
+
+### Derived State with Selectors
+
+<CodeBlock language="tsx">
+{`function TodoStats() {
+  // Derived state computed in selectors
+  const totalTodos = useStore(todoStore, state => state.todos.length);
+  const completedTodos = useStore(todoStore, 
+    state => state.todos.filter(todo => todo.completed).length
+  );
+  const activeTodos = totalTodos - completedTodos;
+
+  return (
+    <div>
+      <p>Total: {totalTodos}</p>
+      <p>Completed: {completedTodos}</p>
+      <p>Active: {activeTodos}</p>
+    </div>
+  );
+}
+`}
+</CodeBlock>
+
+---
+
+## Integration with React 18+
+
+SoulState hooks are built on `React.useSyncExternalStore`, making them fully compatible with:
+
+- **Concurrent Features**: Safe usage in concurrent rendering
+- **Strict Mode**: Proper double-invocation handling
+- **Suspense**: Compatible with React Suspense boundaries
+- **Server Components**: Can be used in client components
+
+<Admonition type="info" title="Implementation Detail">
+  <p>The React hooks implementation can be found in <code>src/react/useStore.ts</code>, which leverages <code>useSyncExternalStore</code> for optimal React 18+ integration.</p>
+</Admonition>
+
+<Admonition type="success" title="Key Takeaway">
+  <p>SoulState's React hooks provide surgical precision for component updates. By combining precise selectors with efficient equality checks, you get optimal performance with minimal boilerplate.</p>
 </Admonition>
