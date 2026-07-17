@@ -1,0 +1,67 @@
+# API: `setState`
+
+The `setState` method is the primary way to perform state transitions in SoulState. It is engineered to be both flexible and systems-grade efficient.
+
+## `store.setState()`
+
+Updates the store state and triggers the propagation engine.
+
+### Signature
+
+<CodeBlock language="typescript">
+{`function setState(
+  updater: T | Partial<T> | ((state: T) => T | Partial<T>),
+  replace?: boolean,
+  sync?: boolean
+): void;
+`}
+</CodeBlock>
+
+### Parameters
+
+1.  **`updater`**:
+    - **Object**: Merges the provided partial state into the current state.
+    - **Function**: Receives the current state and returns a partial or full next state. Functional updaters are preferred for logic that depends on the current state to avoid race conditions.
+2.  **`replace`** (optional): If `true`, the provided state replaces the entire state tree instead of being shallow-merged.
+3.  **`sync`** (optional): If `true`, the update bypasses the microtask scheduler and notifies all subscribers immediately. **Use with caution**, as this can lead to redundant re-renders if called multiple times in a loop.
+
+---
+
+## Propagation Lifecycle
+
+Every `setState` call follows a deterministic path:
+
+1.  **Reconciliation**: The next state is calculated and applied to the store.
+2.  **Key Detection**: SoulState identifies which top-level keys changed (e.g., `user`).
+3.  **Scheduling**: A flush is scheduled in the microtask queue (unless `sync` is true).
+4.  **DAG Invalidation**: The `InvalidationGraph` marks affected nodes as dirty.
+5.  **Topological Flush**: Listeners and computeds are notified in level order.
+
+---
+
+## Batching & Transactions
+
+SoulState automatically batches multiple `setState` calls made within the same synchronous task.
+
+<CodeBlock language="typescript">
+{`// These three calls trigger exactly ONE propagation cycle
+store.setState({ a: 1 });
+store.setState({ b: 2 });
+store.setState({ c: 3 });
+`}
+</CodeBlock>
+
+For multi-step operations that require atomicity, use the **Transaction API**:
+
+<CodeBlock language="typescript">
+{`store.beginTransaction();
+store.setState({ status: 'loading' });
+// ... logic ...
+store.setState({ data: result, status: 'success' });
+store.commitTransaction(); // Only ONE flush here
+`}
+</CodeBlock>
+
+<Admonition type="info" title="Surgical Efficiency">
+  <p>SoulState's <code>setState</code> is extremely efficient. If you call <code>setState</code> with data that is identical to the current state (as determined by <code>Object.is</code>), the entire propagation cycle is aborted before it even begins.</p>
+</Admonition>

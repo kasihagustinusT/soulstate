@@ -19,8 +19,9 @@ const sidebars: SidebarsConfig = {
       label: 'API Reference',
       items: [
         'api/core-store',
-        'api/get-state',
-        'api/set-state',
+        'api/slices',
+        'api/get-state-api',
+        'api/set-state-api',
         'api/subscribe',
         'api/react',
         'api/middleware',
@@ -51,7 +52,9 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'How-To Guides',
       items: [
-        'guides/admin-dashboard',
+        'guides/migration',
+        'guides/troubleshooting',
+        'guides/faq',
         'guides/best-practices',
         'guides/modular-stores',
         'guides/large-scale-architecture',

@@ -1,351 +1,93 @@
 ---
-title: Core Engine Loop
+title: Core Engine Architecture
 sidebar_label: Engine
 ---
 
 import CodeBlock from '@theme/CodeBlock';
 import { Admonition } from '@site/src/components/Admonition';
 
-# Internals: Core Engine Loop
+# Internals: Core Engine Architecture
 
-The SoulState core engine is a lean, efficient system designed to manage state updates and propagate changes with minimal overhead. It orchestrates the interaction between the store's state, the `set` and `get` methods, and the subscription manager.
+SoulState's engine is designed for deterministic updates, high-performance dispatch, and extreme scalability. It separates state management, dependency tracking, and update orchestration into distinct, optimized modules that form a **Reactive Graph Runtime**.
 
-## The `createStore` Factory
+## Architecture Overview
 
-The engine is instantiated by the `createStore` factory function, which sets up the initial state and core mechanisms for state manipulation:
+SoulState's runtime architecture consists of six primary components:
 
-<CodeBlock language="typescript">
-{`// From src/core/store.ts
-export function createStore<T extends object>(initialState: T): Store<T> {
-  let state: T = initialState;
-  const subscriptionManager = createSubscriptionManager<T>();
-  
-  // Batching control
-  let isNotificationScheduled = false;
-  let lastKnownState = state;
-
-  const notifySubscribers = () => {
-    subscriptionManager.notify(state, lastKnownState);
-    lastKnownState = state;
-    isNotificationScheduled = false;
-  };
-
-  const scheduleNotification = () => {
-    if (!isNotificationScheduled) {
-      isNotificationScheduled = true;
-      queueMicrotask(notifySubscribers);
-    }
-  };
-
-  const get = (): T => state;
-
-  const set = (updater: StateUpdater<T>) => {
-    const partialState = typeof updater === 'function'
-      ? (updater as (state: T) => Partial<T> | T)(state)
-      : updater;
-
-    // Early return for no-op updates
-    if (Object.is(partialState, state) || partialState === undefined) {
-      return;
-    }
-
-    // Change detection - check if values actually changed
-    let hasChanged = false;
-    const updatedKeys = Object.keys(partialState);
-    for (let i = 0; i < updatedKeys.length; i++) {
-      const key = updatedKeys[i] as keyof T;
-      if (!Object.is(state[key], (partialState as T)[key])) {
-        hasChanged = true;
-        break;
-      }
-    }
-
-    if (!hasChanged) {
-      return; // Skip object creation and notifications
-    }
-
-    // Create new state object only when necessary
-    const nextState = { ...state, ...(partialState as Partial<T>) };
-    state = nextState;
-
-    scheduleNotification();
-  };
-
-  const subscribe = <S>(
-    selector: (state: T) => S,
-    listener: (selectedState: S, prevSelectedState: S) => void,
-    options?: { equalityFn?: (a: S, b: S) => boolean }
-  ) => {
-    return subscriptionManager.subscribe(selector, listener, options?.equalityFn, state);
-  };
-
-  return { get, set, subscribe };
-}
-`}
-</CodeBlock>
-
-## State Management Flow
-
-The core engine operates through a continuous optimization cycle:
+1.  **StoreApi**: The public interface (`getState`, `setState`, `subscribe`, `computed`).
+2.  **Runtime**: The central orchestrator (in `src/core/runtime.ts`) that manages the state transition and coordination pipeline.
+3.  **InvalidationGraph**: A Directed Acyclic Graph (DAG) for tracking state-to-subscriber and state-to-computed relationships (in `src/internals/graph.ts`).
+4.  **PropagationEngine**: A topological level-based dispatch system (in `src/internals/propagation.ts`).
+5.  **SubscriptionManager**: A high-performance dual linked-list system for global and granular subscribers (in `src/core/subscriptions.ts`).
+6.  **Scheduler**: A deterministic microtask-based batching engine (in `src/core/scheduler.ts`).
 
 ```mermaid
 graph TD
-    A[Action Triggered] --> B[store.set(updater)];
-    B --> C{Change Detection};
-    C -->|No Changes| D[Early Return];
-    C -->|Changes Found| E[Structural Sharing];
-    E --> F{Notification Scheduled?};
-    F -->|No| G[Schedule Microtask];
-    F -->|Yes| H[Skip Scheduling];
-    G --> I[Microtask Queue];
-    H --> I;
-    I --> J[Execute notifySubscribers];
-    J --> K[Linked List Traversal];
-    K --> L{Run Selector & Equality Check};
-    L -->|Changed| M[Trigger Re-render];
-    L -->|Unchanged| N[Skip];
-    M --> O[UI Updates];
-    N --> K;
+    A[Public API] -->|setState| B[Runtime];
+    B -->|Batching| C[Scheduler];
+    C -->|Microtask| D[Runtime.processUpdate];
+    D -->|Query| E[InvalidationGraph];
+    E -->|Affected Nodes| F[PropagationEngine];
+    F -->|Level 0| G[State Keys];
+    G -->|Level 1| H[Computeds/Subscribers];
+    H -->|Level 2+| I[Nested Computeds];
+    I --> J[Surgical Dispatch];
+    J --> K[Component/Listener];
 ```
 
-## Engine Execution Phases
+## The Runtime Orchestrator
 
-### Phase 1: State Update
+The `Runtime` class is the nervous system of SoulState. It manages the current and previous states and ensures that updates are batched and dispatched with systems-grade precision.
 
-<CodeBlock language="typescript">
-{`// 1. Update calculation
-const partialState = typeof updater === 'function' ? updater(state) : updater;
+### The Update Pipeline
 
-// 2. Early optimization checks
-if (Object.is(partialState, state) || partialState === undefined) {
-  return; // No changes needed
-}
+When `setState` is called, the following happens:
 
-// 3. Change detection
-let hasChanged = false;
-const updatedKeys = Object.keys(partialState);
-for (let i = 0; i < updatedKeys.length; i++) {
-  const key = updatedKeys[i] as keyof T;
-  if (!Object.is(state[key], (partialState as T)[key])) {
-    hasChanged = true;
-    break; // Early exit on first change
-  }
-}
-
-// 4. Structural sharing only when necessary
-if (!hasChanged) return;
-const nextState = { ...state, ...(partialState as Partial<T>) };
-state = nextState;
-`}
-</CodeBlock>
-
-### Phase 2: Notification Scheduling
+1.  **State Apply**: The new partial state is applied immediately to the internal state tree.
+2.  **Key Detection**: SoulState identifies which top-level keys changed.
+3.  **Scheduling**: An update is requested via the `Scheduler`.
+4.  **Topological Propagation**: During the flush phase, the `PropagationEngine` traverses the `InvalidationGraph` in level order.
 
 <CodeBlock language="typescript">
-{`// Microtask batching logic
-const scheduleNotification = () => {
-  if (!isNotificationScheduled) {
-    isNotificationScheduled = true;
-    queueMicrotask(notifySubscribers); // Deferred execution
-  }
-};
+{`// src/core/runtime.ts (simplified logic)
+processUpdate() {
+  const currentState = this.state;
+  const flushId = ++this.flushId;
 
-// Multiple updates → single notification
-store.set({ a: 1 }); // First call → schedule
-store.set({ b: 2 }); // Already scheduled → skip
-store.set({ c: 3 }); // Already scheduled → skip
-// Single microtask with all changes
-`}
-</CodeBlock>
+  // Step 1: Query the graph for affected nodes sorted by Level
+  const affectedByLevel = this.propagation.process(this.changedKeys, flushId);
+  this.changedKeys.clear();
 
-### Phase 3: Subscriber Notification
-
-<CodeBlock language="typescript">
-{`// From src/core/subscriptions.ts
-const notify = (newState: T, prevState: T) => {
-  if (Object.is(newState, prevState)) return;
-
-  // Efficient linked list traversal
-  let current = head;
-  while (current) {
-    const sub = current;
-    const newSelectedState = sub.selector(newState);
-    const lastState = sub.lastState;
-
-    // Selective notification
-    if (!sub.equalityFn(newSelectedState, lastState)) {
-      sub.lastState = newSelectedState;
-      sub.listener(newSelectedState, lastState); // Trigger re-render
+  // Step 2: Level-by-level propagation (Topological Order)
+  if (affectedByLevel) {
+    for (const nodes of affectedByLevel) {
+      if (!nodes) continue;
+      for (const node of nodes) {
+        this.dispatch(node, currentState);
+      }
     }
-
-    current = current.next;
   }
-};
-`}
+}`}
 </CodeBlock>
 
-## Performance Optimizations
+## Invalidation Graph & Surgical Precision
 
-### Change Detection
+SoulState uses an **Invalidation Graph** to map dependencies. Unlike global-broadcast systems, it knows exactly which leaf nodes in the tree are affected by a change at level 0.
 
-SoulState prevents unnecessary work through intelligent change detection:
+### Topological Leveling
+To prevent "glitches" (inconsistent state views), every node in the graph is assigned a level:
+- **State Keys**: Level 0.
+- **Computeds** that depend directly on state are Level 1.
+- **Computeds** that depend on other Computeds are Level 2, 3, etc.
+- **Subscribers** are assigned levels based on their specific dependency chain.
 
-<CodeBlock language="typescript">
-{`// Instead of blind object creation:
-// const nextState = { ...state, ...partialState }; // ❌ Always creates new object
+Updates are processed level-by-level, ensuring that a node only executes after all its own dependencies have settled.
 
-// SoulState checks first:
-let hasChanged = false;
-for (let key in partialState) {
-  if (!Object.is(state[key], partialState[key])) {
-    hasChanged = true;
-    break;
-  }
-}
-if (hasChanged) {
-  const nextState = { ...state, ...partialState }; // ✅ Only when needed
-}
-`}
-</CodeBlock>
+## Runtime Observability
 
-### Memory Management
+SoulState includes built-in metrics tracking via `RuntimeMetrics` (in `src/internals/metrics.ts`). This system records:
+- **Flush Durations**: Time taken to propagate an update.
+- **Selector Runs**: Number of times selectors are executed per flush.
+- **Invalidations**: Number of nodes invalidated in the graph.
 
-<CodeBlock language="typescript">
-{`// Single state reference
-let state: T = initialState; // Only one state object in memory
-
-// Efficient subscription cleanup
-const unsubscribe = store.subscribe(selector, listener);
-// Later: O(1) removal from linked list
-unsubscribe(); // No memory leaks
-`}
-</CodeBlock>
-
-## Engine Integration Points
-
-### React Integration
-
-<CodeBlock language="typescript">
-{`// From src/react/useStore.ts
-export function useStore<T, S>(
-  store: Store<T>,
-  selector: (state: T) => S,
-  equalityFn: (a: S, b: S) => boolean = objectIs
-): S {
-  const getSnapshot = React.useCallback(() => selector(store.get()), [store, selector]);
-
-  const subscribe = React.useCallback(
-    (onStoreChange: () => void) => {
-      // Engine's subscribe method
-      const unsubscribe = store.subscribe(selector, onStoreChange, { equalityFn });
-      return unsubscribe;
-    },
-    [store, selector, equalityFn]
-  );
-
-  const value = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
-  return value;
-}
-`}
-</CodeBlock>
-
-### Utility Integration
-
-<CodeBlock language="typescript">
-{`// Equality functions used by the engine
-import { objectIs, shallow } from 'soulstate/utils';
-
-// Default equality check
-store.subscribe(selector, listener); // Uses objectIs
-
-// Shallow object comparison  
-store.subscribe(selector, listener, { equalityFn: shallow });
-`}
-</CodeBlock>
-
-## Engine Characteristics
-
-### Time Complexity
-- **State Updates**: O(k) where k = changed properties
-- **Subscription Management**: O(1) for add/remove
-- **Notifications**: O(n) where n = active subscriptions
-
-### Memory Footprint
-- **Store**: O(1) additional memory
-- **Subscriptions**: O(n) where n = active subscriptions
-- **No History**: Single state reference only
-
-### Concurrency Safety
-- **Synchronous Updates**: Thread-safe in JavaScript's single-threaded environment
-- **Microtask Batching**: Prevents race conditions between updates
-- **Immutable State**: No concurrent modification issues
-
-## Real-World Engine Behavior
-
-### Rapid Updates Scenario
-
-<CodeBlock language="typescript">
-{`// Animation frame - multiple rapid updates
-const animate = () => {
-  store.set({ x: mouseX, y: mouseY });      // 🚫 No immediate notification
-  store.set({ velocity: calcVelocity() });  // 🚫 No immediate notification
-  store.set({ frame: frameCount++ });       // 🚫 No immediate notification
-  
-  // ✅ Single notification after all updates
-  requestAnimationFrame(animate);
-};
-`}
-</CodeBlock>
-
-### Form Handling Scenario
-
-<CodeBlock language="typescript">
-{`// Form submission - multiple related updates
-const handleSubmit = (data) => {
-  store.set({ submitting: true });          // 🚫
-  store.set({ errors: {} });                // 🚫
-  store.set({ lastAttempt: Date.now() });   // 🚫
-  
-  // Process data...
-  store.set({ data, submitting: false });   // New batch (async)
-  
-  // ✅ Maximum 2 re-renders instead of 5
-};
-`}
-</CodeBlock>
-
-## Engine Extension Points
-
-### Custom Equality Functions
-
-<CodeBlock language="typescript">
-{`// Custom comparison logic
-const customEquality = (a, b) => a.id === b.id;
-
-store.subscribe(
-  state => state.user,
-  (user, prevUser) => console.log('User changed'),
-  { equalityFn: customEquality }
-);
-`}
-</CodeBlock>
-
-### Selective Subscription Patterns
-
-<CodeBlock language="typescript">
-{`// Surgical subscriptions for optimal performance
-const userName = useStore(store, state => state.user.name);
-const userEmail = useStore(store, state => state.user.email);
-const isActive = useStore(store, state => state.user.active);
-
-// Each subscription independent and optimized
-`}
-</CodeBlock>
-
-<Admonition type="success" title="Engine Summary">
-  <p>The SoulState core engine combines intelligent change detection, microtask batching, and O(1) subscription management to deliver exceptional performance. By optimizing every phase of the update cycle, it ensures minimal overhead while maintaining perfect consistency and developer-friendly semantics.</p>
-</Admonition>
-
-<Admonition type="info" title="Design Philosophy">
-  <p>SoulState's engine prioritizes predictability and performance. Every optimization is designed to work automatically, requiring no configuration or manual intervention from developers.</p>
-</Admonition>
+These metrics can be exposed via `store.getMetrics()` or used with `enableInstrumentation` for real-time profiling of your systems-grade runtime.

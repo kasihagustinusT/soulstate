@@ -1,10 +1,21 @@
-// A robust shallow equality checker
+/**
+ * SoulState Shallow Equality
+ */
+
+import { useStore } from "../react/useStore";
+import { StoreApi, State, Selector } from "../core/types";
+
 export const shallow = <T, U>(a: T, b: U): boolean => {
   if (Object.is(a, b)) {
     return true;
   }
 
-  if (typeof a !== 'object' || a === null || typeof b !== 'object' || b === null) {
+  if (
+    typeof a !== "object" ||
+    a === null ||
+    typeof b !== "object" ||
+    b === null
+  ) {
     return false;
   }
 
@@ -17,10 +28,20 @@ export const shallow = <T, U>(a: T, b: U): boolean => {
 
   for (let i = 0; i < keysA.length; i++) {
     const key = keysA[i];
-    if (!Object.prototype.hasOwnProperty.call(b, key) || !Object.is((a as any)[key], (b as any)[key])) {
+    if (
+      !Object.prototype.hasOwnProperty.call(b, key) ||
+      !Object.is((a as any)[key], (b as any)[key])
+    ) {
       return false;
     }
   }
 
   return true;
 };
+
+export function useShallow<T extends State, S>(
+  api: StoreApi<T>,
+  selector: Selector<T, S>,
+): S {
+  return useStore(api, selector, shallow);
+}

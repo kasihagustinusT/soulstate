@@ -1,303 +1,88 @@
----
-title: Modular Stores
-sidebar_label: Modular Stores
----
+# Modular Store Design (Slices)
 
-import CodeBlock from '@theme/CodeBlock';
-import { Admonition } from '@site/src/components/Admonition';
+As applications grow, a single `createStore` call with hundreds of lines can become unmanageable. SoulState's **Slice Abstraction** allows you to break your state into focused, independent modules while maintaining a unified, systems-grade runtime.
 
-# Modular Stores with SoulState
+## Defining Slices
 
-As your application grows, managing all state in a single store becomes unwieldy. SoulState's modular architecture allows you to break down state into focused, domain-specific stores that work together seamlessly.
-
-## Why Modular Stores?
-
-- **Separation of Concerns**: Each store manages a specific domain
-- **Better Maintainability**: Smaller, focused stores are easier to understand
-- **Team Scalability**: Multiple teams can work on different stores
-- **Performance**: Smaller stores mean fewer subscribers to notify
-- **Reusability**: Stores can be shared across different app parts
-
-## Creating Modular Stores
-
-Create focused stores for each business domain with clean separation between state and actions.
+A slice encapsulates a specific domain of your application state and the logic that operates on it.
 
 <CodeBlock language="typescript">
-{`// stores/authStore.ts
-import { createStore } from 'soulstate';
+{`// features/auth/authSlice.ts
+import { createSlice } from 'soulstate';
 
-export interface User {
-  id: string;
-  name: string;
-  email: string;
-}
-
-export interface AuthState {
-  isAuthenticated: boolean;
-  user: User | null;
-  loading: boolean;
-}
-
-// Store contains only state
-export const authStore = createStore<AuthState>({
-  isAuthenticated: false,
-  user: null,
-  loading: false
-});
-
-// Actions are separate functions
-export const authActions = {
-  login: async (credentials: any) => {
-    authStore.set({ loading: true });
-    
-    try {
-      // Simulate API call
-      const user = await new Promise<User>(resolve => 
-        setTimeout(() => resolve({ 
-          id: '123', name: 'John Doe', email: 'john@example.com' 
-        }), 500)
-      );
-      
-      authStore.set({ 
-        isAuthenticated: true, 
-        user, 
-        loading: false 
-      });
-    } catch (error) {
-      authStore.set({ loading: false });
-    }
-  },
-
-  logout: () => {
-    authStore.set({ 
-      isAuthenticated: false, 
-      user: null 
-    });
+export const authSlice = createSlice({
+  name: 'auth',
+  initialState: { user: null, token: null },
+  reducers: {
+    login: (state, user) => ({ user }),
+    logout: () => ({ user: null, token: null })
   }
-};
-
-// stores/themeStore.ts
-import { createStore } from 'soulstate';
-
-export const themeStore = createStore({
-  theme: 'light' as 'light' | 'dark'
 });
-
-export const themeActions = {
-  toggleTheme: () => {
-    themeStore.set(state => ({ 
-      theme: state.theme === 'light' ? 'dark' : 'light' 
-    }));
-  }
-};`}
+`}
 </CodeBlock>
 
-## Using Modular Stores in Components
+---
 
-Import and use specific stores with precise selectors for optimal performance.
+## Composing the Root Store
+
+Slices are combined using `combineSlices` and then passed to `createStore`. This creates a single root state object where each slice's name is a top-level key.
+
+<CodeBlock language="typescript">
+{`// store.ts
+import { createStore, combineSlices } from 'soulstate';
+import { authSlice } from './features/auth/authSlice';
+import { themeSlice } from './features/theme/themeSlice';
+
+export const store = createStore(
+  combineSlices(authSlice, themeSlice)
+);
+
+// Final state structure:
+// {
+//   auth: { user: null, token: null, login: f, logout: f },
+//   theme: { mode: 'dark', setTheme: f }
+// }
+`}
+</CodeBlock>
+
+---
+
+## Accessing Modular State
+
+In components, you use the slice name to drill into the specific domain. Because of SoulState's **Surgical Tracking**, subscribing to `s => s.auth.user` will not cause re-renders if `theme.mode` changes.
 
 <CodeBlock language="tsx">
-{`import { useStore } from 'soulstate/react';
-import { authStore, authActions } from '../stores/authStore';
-import { themeStore, themeActions } from '../stores/themeStore';
-
-function Header() {
-  // Subscribe to specific pieces of state
-  const isAuthenticated = useStore(authStore, (state) => state.isAuthenticated);
-  const user = useStore(authStore, (state) => state.user);
-  const theme = useStore(themeStore, (state) => state.theme);
-
-  return (
-    <header style={{ 
-      background: theme === 'dark' ? '#333' : '#eee', 
-      color: theme === 'dark' ? '#eee' : '#333' 
-    }}>
-      {isAuthenticated ? (
-        <>
-          <span>Welcome, {user?.name}</span>
-          <button onClick={authActions.logout}>Logout</button>
-        </>
-      ) : (
-        <span>Please log in</span>
-      )}
-      <button onClick={themeActions.toggleTheme}>
-        Toggle Theme ({theme})
-      </button>
-    </header>
-  );
-}`}
+{`function Profile() {
+  const user = useStore(store, s => s.auth.user);
+  return <div>{user.name}</div>;
+}
+`}
 </CodeBlock>
 
-## Cross-Store Communication
+---
 
-### Method 1: Direct Action Calls
-<CodeBlock language="typescript">
-{`// stores/notificationStore.ts
-import { createStore } from 'soulstate';
+## Modular Actions
 
-export const notificationStore = createStore({
-  notifications: [] as Array<{ id: number; message: string }>
-});
+Actions in a slice are automatically injected into the state tree. This keeps your API discoverable and grouped by domain.
 
-export const notificationActions = {
-  addNotification: (message: string) => {
-    notificationStore.set(state => ({
-      notifications: [
-        ...state.notifications, 
-        { id: Date.now(), message }
-      ]
-    }));
-  }
-};
-
-// Modified authActions to call other store actions
-export const authActions = {
-  login: async (credentials: any) => {
-    authStore.set({ loading: true });
-    
-    try {
-      // ... login logic
-      authStore.set({ isAuthenticated: true, user: userData, loading: false });
-      
-      // Call other store action
-      notificationActions.addNotification('Login successful!');
-    } catch (error) {
-      authStore.set({ loading: false });
-      notificationActions.addNotification('Login failed!');
-    }
-  }
-};`}
-</CodeBlock>
-
-### Method 2: Store Subscriptions
-<CodeBlock language="typescript">
-{`// stores/analyticsStore.ts
-import { createStore } from 'soulstate';
-import { authStore } from './authStore';
-
-export const analyticsStore = createStore({
-  loginCount: 0,
-  lastLogin: null as Date | null
-});
-
-// Subscribe to auth store changes
-export const setupAuthAnalytics = () => {
-  return authStore.subscribe(
-    (state) => state.isAuthenticated,
-    (isAuthenticated, prevIsAuthenticated) => {
-      if (isAuthenticated && !prevIsAuthenticated) {
-        // Update analytics when user logs in
-        analyticsStore.set(state => ({
-          loginCount: state.loginCount + 1,
-          lastLogin: new Date()
-        }));
-      }
-    }
-  );
-};
-
-// Initialize in your app
-// useEffect(() => {
-//   const unsubscribe = setupAuthAnalytics();
-//   return unsubscribe;
-// }, []);`}
-</CodeBlock>
-
-### Method 3: Combined Actions
-<CodeBlock language="typescript">
-{`// stores/appActions.ts
-import { authActions } from './authStore';
-import { notificationActions } from './notificationStore';
-import { analyticsStore } from './analyticsStore';
-
-export const appActions = {
-  loginWithAnalytics: async (credentials: any) => {
-    try {
-      await authActions.login(credentials);
-      notificationActions.addNotification('Welcome back!');
-      
-      // Update analytics directly
-      analyticsStore.set(state => ({
-        loginCount: state.loginCount + 1
-      }));
-    } catch (error) {
-      notificationActions.addNotification('Login failed');
-      throw error;
-    }
-  }
-};`}
-</CodeBlock>
-
-## Store Organization Patterns
-
-### Domain-Based Structure
-```
-src/stores/
-├── auth/
-│   ├── authStore.ts
-│   └── authActions.ts
-├── users/
-│   ├── userStore.ts
-│   └── userActions.ts
-├── ui/
-│   ├── uiStore.ts
-│   └── uiActions.ts
-└── index.ts
-```
-
-### Store Index for Clean Imports
-<CodeBlock language="typescript">
-{`// stores/index.ts
-export { authStore, authActions } from './auth/authStore';
-export { userStore, userActions } from './users/userStore';
-export { uiStore, uiActions } from './ui/uiStore';
-
-// Clean imports in components
-import { authStore, authActions } from '../stores';`}
-</CodeBlock>
-
-## Best Practices
-
-### Keep Stores Focused
-<CodeBlock language="typescript">
-{`// ✅ Good: Focused store
-export const cartStore = createStore({
-  items: [],
-  total: 0
-});
-
-// ❌ Avoid: Mixed concerns
-export const appStore = createStore({
-  user: null,
-  products: [],
-  cart: [],
-  theme: 'light'
-  // Too many unrelated domains
-});`}
-</CodeBlock>
-
-### Use Precise Selectors
 <CodeBlock language="tsx">
-{`// ✅ Good: Surgical subscriptions
-function UserProfile() {
-  const userName = useStore(authStore, state => state.user?.name);
-  const theme = useStore(uiStore, state => state.theme);
-  // Each subscription is independent and precise
-
-  return <div className={theme}>{userName}</div>;
-}`}
+{`function LogoutButton() {
+  // Actions are stable and part of the slice state
+  const { logout } = useStore(store, s => s.auth);
+  
+  return <button onClick={logout}>Log Out</button>;
+}
+`}
 </CodeBlock>
 
-<Admonition type="caution" title="Avoid Circular Dependencies">
-  <p>When stores interact, be mindful of circular dependencies. Design stores to be independent and use explicit communication patterns.</p>
-</Admonition>
+---
 
-<Admonition type="success" title="Modular Benefits">
-  <ul>
-    <li>✅ Better performance with focused stores</li>
-    <li>✅ Clean separation of concerns</li>
-    <li>✅ Easier testing and maintenance</li>
-    <li>✅ Team-friendly architecture</li>
-    <li>✅ Reusable across features</li>
-  </ul>
+## Scaling Strategies
+
+1.  **Slice per Feature**: Create a slice for every major feature (Auth, Settings, DataGrid, etc.).
+2.  **Shared Slices**: Use a `shared` slice for cross-cutting data like notifications or configuration.
+3.  **Cross-Slice Logic**: If an action needs to update multiple slices, define it as a standard action that calls `store.setState` at the root level, rather than inside a specific slice's reducers.
+
+<Admonition type="info" title="Zero Overhead">
+  <p>Modularizing your store with slices has <strong>zero runtime performance cost</strong>. SoulState's propagation engine treats the combined tree as a single graph, providing the same systems-grade throughput as a flat store.</p>
 </Admonition>

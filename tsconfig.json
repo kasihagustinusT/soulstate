@@ -13,6 +13,7 @@
     "isolatedModules": true,
     "noEmit": true,
     "baseUrl": ".",
+    "types": ["vitest/globals"],
     "paths": {
       "soulstate": ["./src/index"]
     }

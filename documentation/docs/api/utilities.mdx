@@ -83,26 +83,68 @@ unsubscribe();
 `}
 </CodeBlock>
 
-### Comparison Examples
+---
+## `enableInstrumentation`
+
+Expose systems-grade diagnostics to identify propagation bottlenecks and monitor runtime performance.
+
+### Function Signature
 
 <CodeBlock language="typescript">
-{`import { shallow } from 'soulstate/utils';
+{`function enableInstrumentation(options?: RuntimeInstrumentation): void;
 
-// Primitives - same as Object.is
-shallow(1, 1); // true
-shallow(1, 2); // false
-
-// Objects with same properties
-shallow({ a: 1, b: 2 }, { a: 1, b: 2 }); // true
-shallow({ a: 1, b: 2 }, { a: 1, b: 3 }); // false
-
-// Different property counts
-shallow({ a: 1 }, { a: 1, b: 2 }); // false
-
-// Nested objects (only top-level compared)
-shallow({ a: { b: 1 } }, { a: { b: 1 } }); // false (different a references)
+interface RuntimeInstrumentation {
+  onFlush?: (duration: number, keys: Set<DependencyKey>) => void;
+  onSelectorRun?: (name: DependencyKey, duration: number) => void;
+  onInvalidate?: (key: DependencyKey) => void;
+}
 `}
 </CodeBlock>
+
+### Usage
+
+<CodeBlock language="typescript">
+{`store.enableInstrumentation({
+  onFlush: (duration, keys) => {
+    console.log(\`Flush took \${duration.toFixed(3)}ms for keys:\`, keys);
+  },
+  onSelectorRun: (name, duration) => {
+    console.log(\`Selector \${String(name)} took \${duration.toFixed(3)}ms\`);
+  }
+});
+`}
+</CodeBlock>
+
+---
+
+## `getMetrics`
+
+Retrieves a snapshot of the current runtime performance metrics.
+
+### Function Signature
+
+<CodeBlock language="typescript">
+{`function getMetrics(): MetricsSnapshot;
+
+interface MetricsSnapshot {
+  flushCount: number;
+  selectorRunCount: number;
+  invalidationCount: number;
+  averageFlushDuration: number;
+  totalFlushDuration: number;
+}
+`}
+</CodeBlock>
+
+### Usage
+
+<CodeBlock language="typescript">
+{`const metrics = store.getMetrics();
+console.log('Average Flush Time:', metrics.averageFlushDuration);
+`}
+</CodeBlock>
+
+---
 
 ## `objectIs`
 
@@ -132,132 +174,58 @@ objectIs({}, {}); // false
 `}
 </CodeBlock>
 
-## `soulBatch`
+---
 
-Utility for batching multiple state updates (Note: SoulState automatically batches updates with microtasks, so this is primarily for advanced use cases).
+## `batch`
+
+Utility for grouping multiple operations. Note that SoulState automatically batches all `setState` calls using microtasks, so this utility is primarily for semantic grouping or advanced patterns.
 
 ### Function Signature
 
 <CodeBlock language="typescript">
-{`function createBatch(): {
-  batch: (callback: () => void, store: any) => void;
-};
-
-const soulBatch = createBatch();
+{`function batch(callback: () => void): void;
 `}
 </CodeBlock>
 
 ### Usage
 
 <CodeBlock language="typescript">
-{`import { soulBatch } from 'soulstate/utils';
+{`import { batch } from 'soulstate/utils';
 
 // Manual batching (rarely needed due to automatic microtask batching)
-soulBatch.batch(() => {
-  store.set({ count: 1 });
-  store.set({ user: 'John' });
-  store.set({ active: true });
-}, store);
-`}
-</CodeBlock>
-
-## `devtools`
-
-Utility for connecting SoulState stores to Redux DevTools Extension.
-
-### Function Signature
-
-<CodeBlock language="typescript">
-{`function devtools(
-  store: any,
-  config?: DevToolsConfig
-): any;
-
-interface DevToolsConfig {
-  name?: string;
-  trace?: boolean;
-  features?: any;
-}
-`}
-</CodeBlock>
-
-### Usage
-
-<CodeBlock language="typescript">
-{`import { createStore } from 'soulstate';
-import { devtools } from 'soulstate/utils';
-
-// Create store
-const store = createStore({ count: 0 });
-
-// Enhance with DevTools
-const storeWithDevTools = devtools(store, {
-  name: 'CounterStore',
-  trace: true
+batch(() => {
+  store.setState({ count: 1 });
+  store.setState({ user: 'John' });
+  store.setState({ active: true });
 });
-
-// All updates will appear in Redux DevTools
-storeWithDevTools.set({ count: 1 });
 `}
 </CodeBlock>
 
-## Anti-patterns
-
-### Using `shallow` Unnecessarily
-
-<CodeBlock language="tsx">
-{`// ❌ Unnecessary - Object.is is sufficient for primitives
-const count = useStore(store, state => state.count, shallow);
-
-// ✅ Better - use default equality for primitives
-const count = useStore(store, state => state.count);
-`}
-</CodeBlock>
-
-### Expecting Deep Comparison
-
-<CodeBlock language="tsx">
-{`// ❌ shallow only compares top-level properties
-const user = useStore(
-  store,
-  state => ({ profile: state.user.profile }),
-  shallow
-);
-// Won't detect changes in state.user.profile.name
-
-// ✅ Select nested properties directly
-const profileName = useStore(store, state => state.user.profile.name);
-`}
-</CodeBlock>
+---
 
 ## Performance Characteristics
 
-- **`shallow`**: O(n) where n is number of properties
-- **`objectIs`**: O(1) constant time operation  
-- **Automatic batching**: All updates batched with `queueMicrotask`
+- **`shallow`**: O(n) where n is number of properties.
+- **`objectIs`**: O(1) constant time operation.
+- **Automatic batching**: All updates are batched with `queueMicrotask` by the core runtime.
 
 ## Best Practices
 
 ### ✅ Do:
-- Use `shallow` for object selections from multiple properties
-- Use default `Object.is` for primitive values
-- Trust SoulState's automatic microtask batching
-- Import utilities from `'soulstate/utils'`
+- Use `shallow` for object selections from multiple properties.
+- Use default `Object.is` for primitive values.
+- Trust SoulState's automatic microtask batching.
+- Import utilities from `'soulstate/utils'`.
 
 ### ❌ Don't:
-- Use `shallow` for primitive values
-- Expect `shallow` to compare nested objects
-- Manually batch updates unless necessary
-- Use utilities for simple property access
+- Use `shallow` for primitive values.
+- Expect `shallow` to compare nested objects.
+- Manually batch updates unless necessary for code organization.
 
 <Admonition type="info" title="Import Path">
-  <p>All utilities are exported from <code>'soulstate/utils'</code>, not from the main package or React bindings.</p>
+  <p>All utilities are exported from <code>'soulstate/utils'</code> and are also available in the main <code>'soulstate'</code> package.</p>
 </Admonition>
 
 <Admonition type="warning" title="Automatic Batching">
-  <p>SoulState automatically batches all state updates using microtasks. The <code>soulBatch</code> utility is rarely needed in practice.</p>
-</Admonition>
-
-<Admonition type="success" title="Key Takeaway">
-  <p>SoulState's utilities provide optimized equality checking and developer tools integration. Use <code>shallow</code> for efficient object comparisons and trust the built-in performance optimizations.</p>
+  <p>SoulState automatically batches all state updates using microtasks. The <code>batch</code> utility is provided for consistency but is often redundant in practice.</p>
 </Admonition>

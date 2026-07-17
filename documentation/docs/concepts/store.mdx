@@ -1,117 +1,43 @@
+# The Centralized Reactive Store
+
+The Store is the fundamental unit of SoulState. Unlike atomic state managers where state is fragmented across many small units, SoulState uses a **Centralized Reactive Tree**—a single, predictable source of truth for your entire application or a major domain.
+
+## The Store as a Runtime
+
+In SoulState, a store is not just a container for data; it is an active **Reactive Runtime**. When you create a store via `createStore`, you are initializing a systems-grade engine that manages:
+1.  **State Settlement**: Immutable reconciliation of incoming updates.
+2.  **Invalidation Logic**: Mapping state changes to affected listeners.
+3.  **Propagation Scheduling**: Coordinating the execution of computeds and React renders in deterministic order.
+
 ---
-title: The Store
-sidebar_label: The Store
+
+## Store Lifecycle
+
+A SoulState store follows a clear, predictable lifecycle:
+
+### 1. Initialization
+The store is created with an initial state or a creator function. At this stage, the **Invalidation Graph** is empty.
+
+### 2. Registration
+As components mount and call `useStore`, or as `computed` nodes are defined, the store's engine builds a dependency map. This is the **Building Phase**, which involves topological level calculation for each new node.
+
+### 3. Transition
+When `setState` is called, the store enters a **Settlement Phase**. The next state is applied, changed keys are detected, and a flush is scheduled in the microtask queue.
+
+### 4. Propagation
+During the **Flush Phase**, the propagation engine traverses the graph. Affected nodes are executed in order of their topological depth. This ensures that no "glitches" (inconsistent views) are possible.
+
+### 5. Settlement
+Once the flush is complete, the store returns to a settled state, waiting for the next user interaction or network event.
+
 ---
 
-import CodeBlock from '@theme/CodeBlock';
-import { Admonition } from '@site/src/components/Admonition';
+## Deterministic Updates
 
-# The Store
+The defining characteristic of a SoulState store is **Determinism**.
+- **Repeatability**: Given the same initial state and sequence of `setState` calls, a SoulState store will always result in the same final state and notify listeners in the same topological order.
+- **Microtask Stability**: Updates are never lost or interleaved in ways that could cause UI tearing, thanks to the microtask-based batching.
 
-The store is the heart of SoulState. It's a self-contained unit that holds your application's state, along with the logic to update it.
-
-## `createStore`
-
-You create a store using the `createStore` function. It takes a single "initializer" function as an argument and returns a `Store` instance.
-
-### Initializer Function
-
-The initializer function is where you define your store's initial state and the actions that modify it. It receives three arguments: `set`, `get`, and `api`.
-
-- `set`: The function used to update the store's state.
-- `get`: A function to read the current state inside actions.
-- `api`: The store instance itself, useful for middleware or advanced patterns.
-
-<CodeBlock language="typescript">
-{`import { createStore } from 'soulstate';
-
-interface BearState {
-  bears: number;
-  increasePopulation: () => void;
-}
-
-export const useBearStore = createStore<BearState>((set, get) => ({
-  bears: 0,
-  increasePopulation: () => {
-    const currentBears = get().bears;
-    set({ bears: currentBears + 1 });
-  },
-}));
-`}
-</CodeBlock>
-
-### The `set` Function
-
-The `set` function is the only way to modify state. It merges state, meaning you only need to provide the fields you want to change.
-
-**Updating State:**
-You can pass `set` a partial state object.
-
-<CodeBlock language="typescript">
-{`// Merges this object into the current state
-set({ bears: 5 });
-`}
-</CodeBlock>
-
-**Functional Updates:**
-For updates that depend on the current state, pass `set` a function. This is the recommended approach to avoid race conditions.
-
-<CodeBlock language="typescript">
-{`// The 'state' argument is guaranteed to be the latest state
-set((state) => ({ bears: state.bears + 1 }));
-`}
-</CodeBlock>
-
-<Admonition type="danger" title="Immutability is Key">
-  <p>SoulState relies on immutability. The <code>set</code> function uses structural sharing to detect changes. Always produce a new object or value when updating state. Do not mutate state directly.</p>
-  <p><strong>Don't do this:</strong> <code>state.bears++</code></p>
-  <p><strong>Do this:</strong> <code>{'set(state => ({ bears: state.bears + 1 }))'}</code></p>
+<Admonition type="success" title="Systems-Grade Philosophy">
+  <p>By treating the store as a centralized reactive tree rather than a loose collection of atoms, SoulState provides the architectural clarity needed for large-scale enterprise applications while maintaining the performance of a granular runtime.</p>
 </Admonition>
-
-### The `get` Function
-
-The `get` function allows you to access the store's state from within an action or computation, without subscribing to it. This is useful for calculations that depend on the current state.
-
-<CodeBlock language="typescript">
-{`const useAuthStore = createStore((set, get) => ({
-  isLoggedIn: false,
-  user: null,
-  logOut: () => {
-    const user = get().user;
-    console.log('Logging out ' + (user?.name || 'user'));
-    set({ isLoggedIn: false, user: null });
-  }
-}));
-`}
-</CodeBlock>
-
-## Store Instance Methods
-
-The `createStore` function returns a store object with three primary methods: `get`, `set`, and `subscribe`. While you'll typically interact with the store via the `useStore` hook in React, these methods are available for non-React usage or for integrating with other systems.
-
-- `store.get()`: Returns the current state. **This is non-reactive.**
-- `store.set()`: Updates the state. This will trigger notifications to all subscribers.
-- `store.subscribe()`: Subscribes to state changes.
-
-<CodeBlock language="typescript">
-{`import { useBearStore } from './store';
-
-// Reading state directly (non-reactive)
-const initialBears = useBearStore.get().bears;
-console.log(initialBears); // 0
-
-// Subscribing to changes
-const unsubscribe = useBearStore.subscribe(
-  state => state.bears,
-  (bears, prevBears) => {
-    console.log('Bears changed from ' + prevBears + ' to ' + bears);
-  }
-);
-
-// Updating state
-useBearStore.set({ bears: 10 }); // Logs: Bears changed from 0 to 10
-
-// Clean up subscription
-unsubscribe();
-`}
-</CodeBlock>

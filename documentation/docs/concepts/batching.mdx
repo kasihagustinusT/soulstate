@@ -1,205 +1,64 @@
----
-title: Automatic Batching
-sidebar_label: Batching
----
+# Batching & Deterministic Flush
 
-import CodeBlock from '@theme/CodeBlock';
-import { Admonition } from '@site/src/components/Admonition';
+Batching is the process of grouping multiple state updates into a single propagation cycle. SoulState provides two layers of batching: **Automatic Microtask Batching** and **Explicit Transactions**.
 
-# Automatic Batching
+## Layer 1: Automatic Microtask Batching
 
-In a state management library, "batching" is the process of grouping multiple state updates into a single, atomic operation. This is critical for both performance and UI consistency. SoulState performs batching automatically, so you get these benefits for free.
+By default, every `setState` call in SoulState is deferred to the microtask queue using `queueMicrotask`.
 
-## Automatic Batching with Microtasks
-
-Whenever you call `store.set()`, SoulState does not immediately notify its subscribers. Instead, it schedules a notification to run in a **microtask**.
-
-A microtask is a short function that runs after the current JavaScript task is finished, but before the browser has a chance to repaint the screen.
-
-<CodeBlock language="tsx">
-{`import { createStore } from 'soulstate';
-import { useStore } from 'soulstate/react';
-
-// Create store with initial state
-const counterStore = createStore({ count: 0 });
-
-// Define actions that update the store
-const counterActions = {
-  increment: () => counterStore.set(state => ({ count: state.count + 1 })),
-  incrementBy: (amount: number) => counterStore.set(state => ({ count: state.count + amount })),
-};
-
-function MyComponent() {
-  const count = useStore(counterStore, state => state.count);
-
-  const handleMultipleUpdates = () => {
-    // These three 'set' calls happen in the same event loop task
-    counterActions.increment();    // 🚫 No immediate notification
-    counterActions.increment();    // 🚫 No immediate notification  
-    counterActions.incrementBy(5); // 🚫 No immediate notification
-    
-    // ✅ All three updates are batched into ONE notification
-    // Component will only re-render ONCE with count + 7
-  };
-
-  return (
-    <div>
-      <p>Count: {count}</p>
-      <button onClick={handleMultipleUpdates}>Update Multiple Times</button>
-    </div>
-  );
-}
-`}
-</CodeBlock>
-
-### Why is this important?
-
-1. **Performance**: It dramatically reduces the number of re-renders. If you have multiple state updates in a single event handler, your components will only render once with the final state.
-2. **Prevents "Tearing"**: Tearing is a UI inconsistency where different components show different state values from the same update batch because they rendered at different times. By batching all notifications and rendering with the final state, SoulState ensures your entire UI is always consistent.
-
-## How Microtask Batching Works
-
-SoulState uses a simple but effective batching mechanism:
+- **Mechanism**: When `setState` is called, the store schedules a "flush" in the next microtask. If more `setState` calls occur before that microtask executes, they are all merged into the same flush.
+- **Benefit**: This eliminates redundant re-renders and ensuring that components only see the final, "settled" state of a synchronous block of code.
 
 <CodeBlock language="typescript">
-{`// Simplified implementation from src/core/store.ts
-let isNotificationScheduled = false;
-
-const scheduleNotification = () => {
-  if (!isNotificationScheduled) {
-    isNotificationScheduled = true;
-    queueMicrotask(notifySubscribers); // Batched!
-  }
-};
-
-const notifySubscribers = () => {
-  subscriptionManager.notify(state, lastKnownState);
-  lastKnownState = state;
-  isNotificationScheduled = false; // Reset for next batch
-};
-`}
-</CodeBlock>
-
-## Update Timeline Diagram
-
-Here's a visual representation of how SoulState batches updates within a single JavaScript event loop tick.
-
-```mermaid
-sequenceDiagram
-    participant User
-    participant Component
-    participant SoulState
-    participant MicrotaskQueue as "Microtask Queue"
-    participant React
-
-    User->>Component: Clicks a button
-    Component->>SoulState: store.set({ count: 1 })
-    SoulState->>MicrotaskQueue: Schedules notify()
-    Component->>SoulState: store.set({ count: 2 })
-    Component->>SoulState: store.set({ count: 3 })
-    Note right of SoulState: Notification already scheduled<br/>No additional scheduling
-
-    Note over Component, React: --- End of current JS task ---
-
-    MicrotaskQueue->>SoulState: Executes notify()
-    SoulState->>React: Triggers re-render with final state ({ count: 3 })
-    React->>Component: Re-renders once with final count = 3
-```
-
-## Real-World Example: Form Handling
-
-Batching is particularly useful when handling complex form updates:
-
-<CodeBlock language="tsx">
-{`import { createStore } from 'soulstate';
-import { useStore } from 'soulstate/react';
-
-const formStore = createStore({
-  user: { name: '', email: '', age: 0 },
-  isValid: false,
-  isSubmitting: false
-});
-
-const formActions = {
-  updateField: (field: string, value: any) => 
-    formStore.set(state => ({ 
-      user: { ...state.user, [field]: value } 
-    })),
-    
-  validateForm: () => 
-    formStore.set(state => ({
-      isValid: state.user.name && state.user.email && state.user.age > 0
-    })),
-    
-  startSubmission: () => formStore.set({ isSubmitting: true })
-};
-
-function UserForm() {
-  const { user, isValid, isSubmitting } = useStore(formStore, state => state);
-
-  const handleInputChange = (field: string, value: string) => {
-    // Multiple updates batched into one re-render
-    formActions.updateField(field, value);
-    formActions.validateForm();
-  };
-
-  const handleSubmit = async () => {
-    formActions.startSubmission();
-    // Even with async operations, related sync updates are batched
-    await submitToAPI(user);
-    formStore.set({ isSubmitting: false });
-  };
-
-  return (
-    <form>
-      <input 
-        value={user.name} 
-        onChange={(e) => handleInputChange('name', e.target.value)}
-      />
-      {/* Only one re-render per input change, despite multiple state updates */}
-    </form>
-  );
+{`function handleMultipleUpdates() {
+  store.setState({ a: 1 });
+  store.setState({ b: 2 });
+  store.setState({ c: 3 });
+  
+  // Only ONE propagation cycle occurs after this function exits.
 }
 `}
 </CodeBlock>
 
-## Batching Across Multiple Stores
+---
 
-SoulState's batching works per-store. If you update multiple stores in the same event loop, each store will batch its own updates independently.
+## Layer 2: Explicit Transactions
 
-<CodeBlock language="tsx">
-{`const storeA = createStore({ value: 0 });
-const storeB = createStore({ value: 0 });
+For complex, multi-step operations that may span asynchronous boundaries or require atomicity with rollback support, SoulState provides a **Transaction Engine**.
 
-const updateBothStores = () => {
-  storeA.set(state => ({ value: state.value + 1 })); // Batched in storeA
-  storeB.set(state => ({ value: state.value + 1 })); // Batched in storeB
-  storeA.set(state => ({ value: state.value + 1 })); // Batched in storeA
-  storeB.set(state => ({ value: state.value + 1 })); // Batched in storeB
+<CodeBlock language="typescript">
+{`store.beginTransaction();
+
+try {
+  store.setState({ user: { name: 'Bob' } });
+  store.setState({ status: 'active' });
   
-  // Results in:
-  // - storeA: one notification with value + 2
-  // - storeB: one notification with value + 2
-  // - Components: maximum of 2 re-renders (one per store)
-};
+  if (someError) throw new Error();
+  
+  store.commitTransaction(); // Triggers exactly one flush
+} catch (e) {
+  store.rollbackTransaction(); // State is restored, no flush occurs
+}
 `}
 </CodeBlock>
 
-<Admonition type="tip" title="React 18+ Compatibility">
-  <p>SoulState's microtask batching works perfectly with React's own internal batching and the <code>useSyncExternalStore</code> hook, ensuring robust and predictable behavior in all versions of React 18 and beyond.</p>
-</Admonition>
+### Transaction Characteristics
+- **Buffering**: Updates are kept in a local buffer and are not applied to the main state tree until `commitTransaction`.
+- **Atomic Propagation**: Downstream subscribers (computeds, listeners, React components) are only notified once the transaction commits.
+- **Rollback**: If something goes wrong, you can discard the buffered changes entirely.
 
-<Admonition type="info" title="Implementation Detail">
-  <p>The actual batching implementation can be found in <code>src/core/store.ts</code> using <code>queueMicrotask</code> for optimal performance across all modern browsers and JavaScript environments.</p>
-</Admonition>
+---
 
-## Performance Benefits
+## Deterministic Flush Ordering
 
-- **Reduced Re-renders**: Multiple updates = single re-render
-- **Better UX**: No visual flickering from intermediate states  
-- **Optimized Performance**: Minimal DOM operations
-- **Memory Efficient**: No unnecessary component instances
+SoulState's propagation engine ensures that once a batch or transaction is ready to flush, the updates are processed in a **deterministic topological order**.
 
-<Admonition type="success" title="Key Takeaway">
-  <p>SoulState's automatic microtask batching gives you optimal performance by default. Write your state updates naturally, and SoulState ensures your components only re-render when necessary with the final state values.</p>
+1.  **Key Settlement**: All keys changed in the batch are identified.
+2.  **Level Sorting**: Affected nodes in the `InvalidationGraph` are sorted by their topological level (Depth in the dependency tree).
+3.  **Topological Propagation**: Level 1 nodes are notified, followed by Level 2, and so on.
+
+This ordering is critical to prevent **"Glitches"**—situations where a component or computed value sees an inconsistent state because one of its dependencies updated before another.
+
+<Admonition type="success" title="Systems-Grade Consistency">
+  <p>By combining microtask batching with topological ordering, SoulState provides a deterministic execution environment where your UI state is always consistent, regardless of update complexity.</p>
 </Admonition>

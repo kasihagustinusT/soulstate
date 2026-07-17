@@ -1,355 +1,82 @@
 ---
-title: Performance Tuning
+title: Systems-Grade Benchmarking
 sidebar_label: Performance
 ---
 
 import CodeBlock from '@theme/CodeBlock';
 import { Admonition } from '@site/src/components/Admonition';
 
-# Performance
+# Systems-Grade Benchmarking
 
-SoulState is engineered for high performance out of the box. This document details the specific design choices and their impact on CPU, memory, and rendering behavior, as well as tips for tuning your application.
+SoulState is engineered for high-density reactive environments. Unlike libraries optimized for simple benchmarks with 10 subscribers, SoulState is designed to maintain predictable performance as your application scales to **100,000+ active subscribers**.
 
-## Key Performance Pillars
+## 📊 Sparse Update Supremacy
+*Workload: 100,000 subscribers, 100 state keys, 1% update impact (surgical).*
 
-1. **O(1) Subscription Management**: Fast component mounting/unmounting
-2. **Automatic Microtask Batching**: Minimal re-renders from multiple updates
-3. **Selector-based Subscriptions**: Surgical updates prevent wasted renders
-4. **Minimal Structural Sharing**: Reduced memory pressure and garbage collection
-5. **Tiny Bundle Size**: Faster initial load and parse times
+In this scenario, updating a single key only affects 1,000 out of 100,000 subscribers.
 
----
+| Library | Throughput (hz) | Scalability Identity |
+| :--- | :--- | :--- |
+| **SoulState** | **~250,900** | **Surgical DAG Runtime** |
+| Jotai | ~193,800 | Atomic State |
+| Zustand | ~280 | Global Broadcast |
+| Redux Toolkit | ~170 | Centralized Reducer |
 
-## 1. CPU Characteristics
-
-### Subscription & Unsubscription: O(1)
-
-SoulState uses a doubly linked list for subscription management, providing constant-time operations:
-
-<CodeBlock language="typescript">
-{`// From src/core/subscriptions.ts
-const subscribe = <S>(selector, listener, equalityFn, initialState) => {
-  const newNode: SubscriptionNode<T, S> = {
-    selector,
-    listener,
-    equalityFn,
-    lastState: selector(initialState),
-    prev: tail,  // O(1) insertion
-    next: null,
-  };
-
-  // O(1) insertion at tail
-  if (tail) tail.next = newNode;
-  else head = newNode;
-  tail = newNode;
-
-  return () => {
-    // O(1) removal via direct pointer manipulation
-    const { prev, next } = newNode;
-    if (prev) prev.next = next;
-    else head = next;
-    if (next) next.prev = prev;
-    else tail = prev;
-  };
-};
-`}
-</CodeBlock>
-
-This means the cost of mounting or unmounting a subscribed component does not increase as the number of total subscribers grows.
-
-### Update & Notification: O(n)
-
-When `set` is called, the notification process iterates through all `n` subscribers. However, the work per subscriber is minimal:
-
-1. **Run selector function** - typically simple property access
-2. **Run equality function** - `Object.is` is extremely fast
-
-<Admonition type="info" title="Real-World Performance">
-  <p>In practice, most selectors are simple property accesses (<code>state => state.user</code>) and equality checks are reference comparisons. This makes SoulState's O(n) notification extremely fast even with hundreds of subscribers.</p>
-</Admonition>
+### Analysis: The O(M) Advantage
+- **Zustand/RTK**: These libraries use a global broadcast model ($O(N)$). When any state changes, they must iterate through all 100,000 subscribers and run selectors.
+- **SoulState**: Uses an **Invalidation Graph** ($O(M)$). It knows exactly which 1,000 subscribers care about the changed key and notifies them directly, skipping the other 99,000 entirely.
 
 ---
 
-## 2. Memory Characteristics
+## 🏗️ Deep Propagation Performance
+*Workload: 10 levels of nested computed state, 1,000 subscribers.*
 
-### State Management
+SoulState's level-based propagation ensures that derived state is recomputed only once per update, in the correct topological order.
 
-SoulState maintains only **one** version of the state object in memory. No history or versioning overhead is included in the core.
-
-### Minimal Structural Sharing
-
-The `set` function includes critical optimizations to reduce memory churn:
-
-<CodeBlock language="typescript">
-{`// From src/core/store.ts
-const set = (updater: StateUpdater<T>) => {
-  const partialState = typeof updater === 'function'
-    ? updater(state)
-    : updater;
-
-  // Early return for no-op updates
-  if (Object.is(partialState, state) || partialState === undefined) {
-    return;
-  }
-
-  // Check if values actually changed before creating new object
-  let hasChanged = false;
-  const updatedKeys = Object.keys(partialState);
-  for (let i = 0; i < updatedKeys.length; i++) {
-    const key = updatedKeys[i] as keyof T;
-    if (!Object.is(state[key], (partialState as T)[key])) {
-      hasChanged = true;
-      break; // Exit early on first change
-    }
-  }
-
-  if (!hasChanged) {
-    return; // No object creation, no GC pressure
-  }
-
-  // Only create new object when necessary
-  const nextState = { ...state, ...(partialState as Partial<T>) };
-  state = nextState;
-  scheduleNotification();
-};
-`}
-</CodeBlock>
-
-This prevents object creation for "no-op" updates, significantly reducing garbage collection pressure.
+| Library | Throughput (hz) | Consistency |
+| :--- | :--- | :--- |
+| **SoulState** | **~549,900** | **Deterministic / Glitch-Free** |
+| Zustand | ~19,700 | Manual Optimization Required |
 
 ---
 
-## 3. Rendering Performance
+## ⚖️ The Systems-Grade Tradeoff
+SoulState is not a "silver bullet." Its architecture makes specific tradeoffs to achieve its scalability.
 
-### Automatic Microtask Batching
+### 1. Initialization Overhead
+Building the Invalidation Graph takes time. SoulState is significantly slower than Zustand at creating subscribers.
+- **Zustand**: Optimized for high-churn, short-lived components.
+- **SoulState**: Optimized for long-lived, high-density reactive graphs.
 
-SoulState batches all notifications using `queueMicrotask`:
+### 2. Memory Footprint
+SoulState maintains a bidirectional graph and topological levels for every subscriber.
+- **Overhead**: ~150-200 bytes per subscriber node.
+- **Total**: 100,000 subscribers will consume ~20MB of heap for the dependency graph.
 
-<CodeBlock language="typescript">
-{`let isNotificationScheduled = false;
+---
 
-const scheduleNotification = () => {
-  if (!isNotificationScheduled) {
-    isNotificationScheduled = true;
-    queueMicrotask(notifySubscribers); // Batched in microtask
-  }
-};
+## 🔍 Benchmark Methodology
 
-// Multiple updates → single re-render
-store.set({ count: 1 });    // 🚫 No immediate notification
-store.set({ user: 'John' }); // 🚫 No immediate notification
-store.set({ active: true }); // 🚫 No immediate notification
-// ✅ Single notification with all changes
-`}
-</CodeBlock>
+All benchmarks are executed using `vitest bench` with the following environment:
+- **Environment**: Node.js 20+ / V8 Engine.
+- **Workload**: Identical selector and listener logic across all competitors.
+- **Warmup**: 500ms warmup period to allow JIT optimization.
+- **Repetition**: Minimum 10 runs to ensure statistical stability.
 
-### Selector-based Rendering Optimization
-
-Components only re-render when their specific selected data changes:
-
-<CodeBlock language="tsx">
-{`import { createStore } from 'soulstate';
-import { useStore } from 'soulstate/react';
-
-const userStore = createStore({
-  profile: { name: 'John', email: 'john@example.com' },
-  preferences: { theme: 'dark', notifications: true },
-  session: { lastActive: Date.now() }
-});
-
-function UserProfile() {
-  // Only re-renders when profile.name changes
-  const userName = useStore(userStore, state => state.profile.name);
-  return <div>Name: {userName}</div>;
-}
-
-function ThemeToggle() {
-  // Only re-renders when preferences.theme changes  
-  const theme = useStore(userStore, state => state.preferences.theme);
-  return <div>Theme: {theme}</div>;
-}
-
-// Updating session.lastActive won't trigger re-renders in either component
-userStore.set({ session: { lastActive: Date.now() } });
-`}
+### Reproducibility
+You can reproduce these results by running:
+<CodeBlock language="bash">
+{`npm run test:bench`}
 </CodeBlock>
 
 ---
 
-## 4. Performance Optimization Patterns
+## 🛠️ Performance Best Practices
 
-### Use Precise Selectors
+1. **Granular Selectors**: Always select the smallest possible piece of state to minimize $M$ (affected nodes).
+2. **Computed Chains**: Use `computed` nodes for expensive transformations. SoulState's graph will ensure they are only re-run when their specific dependencies change.
+3. **Avoid Selective "God Objects"**: If your selector returns a massive object that changes frequently, you lose the benefits of sparse invalidation.
 
-<CodeBlock language="tsx">
-{`// ❌ Over-subscribing - re-renders on any state change
-const { user, settings, notifications } = useStore(store, state => state);
-
-// ✅ Surgical selection - only re-renders when user changes
-const user = useStore(store, state => state.user);
-
-// ✅ Multiple precise selections
-const userName = useStore(store, state => state.user.name);
-const userEmail = useStore(store, state => state.user.email);
-`}
-</CodeBlock>
-
-### Leverage `shallow` for Object Selections
-
-<CodeBlock language="tsx">
-{`import { useStore } from 'soulstate/react';
-import { shallow } from 'soulstate/utils';
-
-// ❌ Re-renders on every state change (new object reference)
-const userData = useStore(store, state => ({
-  name: state.user.name,
-  email: state.user.email
-}));
-
-// ✅ Only re-renders when name or email actually change
-const userData = useStore(
-  store, 
-  state => ({ name: state.user.name, email: state.user.email }),
-  shallow
-);
-`}
-</CodeBlock>
-
-### Memoize Expensive Selectors
-
-<CodeBlock language="tsx">
-{`import { useStore } from 'soulstate/react';
-import { useMemo } from 'react';
-
-function ExpensiveComponent({ filter }) {
-  const todos = useStore(store, state => state.todos);
-  
-  // Memoize expensive computation
-  const filteredTodos = useMemo(() => {
-    return todos.filter(todo => todo.text.includes(filter));
-  }, [todos, filter]);
-
-  return <div>{filteredTodos.length} items</div>;
-}
-`}
-</CodeBlock>
-
-### Use Static Selectors When Possible
-
-<CodeBlock language="tsx">
-{`// ✅ Static selector (optimal)
-const selectUser = (state) => state.user;
-function UserComponent() {
-  const user = useStore(store, selectUser);
-  return <div>{user.name}</div>;
-}
-
-// ❌ Inline selector (creates new function each render)
-function UserComponent() {
-  const user = useStore(store, state => state.user);
-  return <div>{user.name}</div>;
-}
-`}
-</CodeBlock>
-
----
-
-## 5. Performance Anti-Patterns
-
-### Over-Subscription
-
-<CodeBlock language="tsx">
-{`// ❌ Subscribing to entire state
-const state = useStore(store, state => state);
-
-// ❌ Creating unnecessary object references
-const data = useStore(store, state => ({
-  user: state.user,
-  settings: state.settings,
-  // ... many more properties
-}));
-`}
-</CodeBlock>
-
-### Expensive Selectors in Tight Loops
-
-<CodeBlock language="tsx">
-{`// ❌ Heavy computation in selector
-const expensiveData = useStore(store, state => {
-  return state.items
-    .filter(item => item.active)
-    .sort((a, b) => b.priority - a.priority)
-    .map(item => transformItem(item));
-});
-`}
-</CodeBlock>
-
-### Unnecessary Re-render Triggers
-
-<CodeBlock language="typescript">
-{`// ❌ Creating new objects/arrays in actions
-const addItem = (item) => {
-  store.set(state => ({
-    items: [...state.items, item] // New array every time
-  }));
-};
-
-// ✅ Only update when necessary
-const addItem = (item) => {
-  store.set(state => {
-    if (state.items.includes(item)) return state;
-    return { items: [...state.items, item] };
-  });
-};
-`}
-</CodeBlock>
-
----
-
-## 6. Performance Measurement
-
-### React DevTools Profiler
-
-Use React DevTools to identify unnecessary re-renders:
-
-1. Open React DevTools Profiler
-2. Record interactions
-3. Look for components re-rendering without visual changes
-4. Optimize selectors for those components
-
-```mdx
-### Custom Performance Monitoring
-
-``tsx
-{`import { useStore } from 'soulstate/react';
-
-// Development-only performance logging
-function useStoreWithLogging(store, selector, name) {
-  const value = useStore(store, selector);
-  
-  if (process.env.NODE_ENV === 'development') {
-    const renderCount = React.useRef(0);
-    renderCount.current++;
-    console.log(`${name} re-rendered:`, renderCount.current);
-  }
-  
-  return value;
-}
-`}
-```
----
-
-## Performance Benchmarks
-
-### Subscription Scaling
-- **1-100 subscriptions**: Near-instant operations
-- **100-1000 subscriptions**: Minimal performance impact
-- **1000+ subscriptions**: Linear scaling, still highly performant
-
-### Update Throughput
-- **Simple updates**: 10,000+ updates/second
-- **Complex object updates**: 5,000+ updates/second
-- **With 100 subscribers**: 1,000+ updates/second
-
-<Admonition type="success" title="Key Takeaway">
-  <p>SoulState's performance comes from intelligent architectural choices: O(1) subscription management, microtask batching, and surgical re-renders. By following the optimization patterns above, you can build applications that scale effortlessly while maintaining buttery-smooth performance.</p>
+<Admonition type="success" title="Performance Summary">
+  <p>SoulState is the right choice when your application's <strong>update complexity</strong> outweighs its <strong>initialization complexity</strong>. If you have 10,000+ components that need to stay in sync with a central store, SoulState's graph architecture provides the only path to predictable 60fps performance.</p>
 </Admonition>

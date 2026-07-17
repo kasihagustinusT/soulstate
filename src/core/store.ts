@@ -1,85 +1,225 @@
-import { createSubscriptionManager } from './subscriptions';
+import {
+  State,
+  StoreApi,
+  StateCreator,
+  Selector,
+  Listener,
+  SubscribeOptions,
+  DependencyKey,
+} from "./types";
+import {
+  SubscriptionManager,
+  FLAG_BYPASS_CHECK,
+  globalUnsubscribePool,
+} from "./subscriptions";
+import { Runtime } from "./runtime";
+import { objectIs } from "../utils/equality";
+import { InvalidationGraph } from "../internals/graph";
+import {
+  SelectorRegistry,
+  FLAG_PENDING_TRACKING,
+} from "../internals/invalidation";
+import { RuntimeMetrics } from "../internals/metrics";
 
-type StateUpdater<T> = Partial<T> | ((state: T) => Partial<T> | T);
+declare const process: { env?: { NODE_ENV?: string } } | undefined;
+const isDev =
+  typeof process !== "undefined" && process?.env?.NODE_ENV !== "production";
 
-export interface Store<T> {
-  get: () => T;
-  set: (updater: StateUpdater<T>) => void;
-  subscribe: <S>(
-    selector: (state: T) => S,
-    listener: (selectedState: S, prevSelectedState: S) => void,
-    options?: { equalityFn?: (a: S, b: S) => boolean }
-  ) => () => void;
+function invariant(condition: boolean, message: string): void {
+  if (!condition) {
+    throw new Error(`[SoulState] ${message}`);
+  }
 }
 
-export function createStore<T extends object>(initialState: T): Store<T> {
-  let state: T = initialState;
-  const subscriptionManager = createSubscriptionManager<T>();
+function devWarning(condition: boolean, message: string): void {
+  if (!condition && isDev) {
+    console.warn(`[SoulState] ${message}`);
+  }
+}
 
-  let isNotificationScheduled = false;
-  let lastKnownState = state;
+const DANGEROUS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
-  const notifySubscribers = () => {
-    subscriptionManager.notify(state, lastKnownState);
-    lastKnownState = state;
-    isNotificationScheduled = false;
-  };
-
-  const scheduleNotification = () => {
-    if (!isNotificationScheduled) {
-      isNotificationScheduled = true;
-      queueMicrotask(notifySubscribers);
+function sanitizeState<T extends Record<string, any>>(obj: T): T {
+  const keys = Object.keys(obj);
+  let hasDangerous = false;
+  for (let i = 0; i < keys.length; i++) {
+    if (DANGEROUS_KEYS.has(keys[i])) {
+      hasDangerous = true;
+      break;
     }
-  };
-
-  const get = (): T => state;
-
-  const set = (updater: StateUpdater<T>) => {
-    const partialState = typeof updater === 'function'
-      ? (updater as (state: T) => Partial<T> | T)(state)
-      : updater;
-
-    if (Object.is(partialState, state) || partialState === undefined) {
-      return;
+  }
+  if (!hasDangerous) return obj;
+  const safe: any = Object.create(null);
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i];
+    if (!DANGEROUS_KEYS.has(key)) {
+      safe[key] = (obj as any)[key];
     }
+  }
+  return safe as T;
+}
 
-    // --- Minimal Structural Sharing ---
-    // Instead of spreading blindly, check if any value has actually changed.
-    let hasChanged = false;
-    const updatedKeys = Object.keys(partialState);
-    for (let i = 0; i < updatedKeys.length; i++) {
-      const key = updatedKeys[i] as keyof T;
-      if (!Object.is(state[key], (partialState as T)[key])) {
-        hasChanged = true;
-        break;
+function safeMerge<T extends Record<string, any>>(target: T, source: any): T {
+  const keys = Object.keys(source);
+  const result = Object.create(Object.getPrototypeOf(target));
+  const targetKeys = Object.keys(target);
+  for (let i = 0; i < targetKeys.length; i++) {
+    result[targetKeys[i]] = (target as any)[targetKeys[i]];
+  }
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i];
+    if (!DANGEROUS_KEYS.has(key)) {
+      result[key] = source[key];
+    }
+  }
+  return result;
+}
+
+export function createStore<T extends State>(
+  creator: StateCreator<T> | T,
+): StoreApi<T> {
+  invariant(
+    typeof creator === "function" ||
+      (typeof creator === "object" && creator !== null),
+    "createStore requires a state creator function or initial state object",
+  );
+
+  const graph = new InvalidationGraph();
+  const subscriptions = new SubscriptionManager<T>(graph);
+  const metrics = new RuntimeMetrics();
+
+  const selectors: SelectorRegistry<T> = new SelectorRegistry<T>(
+    graph,
+    metrics,
+    () => runtime.getVersion(),
+  );
+  graph.setKeyRegistry(selectors);
+
+  const runtime: Runtime<T> = new Runtime<T>(
+    {} as T,
+    subscriptions,
+    graph,
+    selectors,
+    metrics,
+  );
+  let destroyed = false;
+
+  const api: StoreApi<T> = {
+    getState: () => {
+      devWarning(!destroyed, "getState called on a destroyed store");
+      return runtime.getState();
+    },
+    getVersion: () => runtime.getVersion(),
+    setState: (updater, replace, sync) => {
+      invariant(!destroyed, "Cannot update state on a destroyed store");
+      invariant(
+        typeof updater === "function" ||
+          (typeof updater === "object" && updater !== null),
+        "setState requires a partial state object or updater function",
+      );
+      const currentState = runtime.getState();
+      const nextPartialState =
+        typeof updater === "function"
+          ? (updater as any)(currentState)
+          : updater;
+      if (nextPartialState !== currentState) {
+        if (
+          replace ||
+          typeof nextPartialState !== "object" ||
+          nextPartialState === null
+        ) {
+          runtime.setState(nextPartialState as T, undefined, sync);
+        } else {
+          const hasGranular = runtime.hasGranularListeners;
+          let hasChanged = false;
+          let changedKeys: DependencyKey[] | undefined;
+          const keys = Object.keys(nextPartialState);
+          for (let i = 0; i < keys.length; i++) {
+            const key = keys[i];
+            if (
+              !objectIs(
+                (currentState as any)[key],
+                (nextPartialState as any)[key],
+              )
+            ) {
+              hasChanged = true;
+              if (hasGranular) {
+                if (!changedKeys) changedKeys = [];
+                changedKeys.push(key as DependencyKey);
+              } else break;
+            }
+          }
+          if (hasChanged)
+            runtime.setState(
+              safeMerge(currentState, nextPartialState),
+              changedKeys,
+              sync,
+            );
+        }
       }
-    }
+    },
+    subscribe: <S>(
+      selector: Selector<T, S>,
+      listener: Listener<S>,
+      options?: SubscribeOptions<S>,
+    ) => {
+      invariant(!destroyed, "Cannot subscribe to a destroyed store");
+      invariant(
+        typeof selector === "function",
+        "subscribe requires a selector function",
+      );
+      invariant(
+        typeof listener === "function",
+        "subscribe requires a listener function",
+      );
+      const currentState = runtime.getState();
+      const equalityFn = options?.equalityFn || objectIs;
+      const initialValue = selector(currentState);
 
-    if (!hasChanged) {
-      return; // No actual change, so we bail out early, avoiding new object creation.
-    }
-    
-    // Only create a new object if something has truly changed.
-    const nextState = { ...state, ...(partialState as Partial<T>) };
-    state = nextState;
-    
-    scheduleNotification();
+      const node = subscriptions.add(
+        selector,
+        listener,
+        equalityFn,
+        initialValue,
+        true,
+      );
+      node._flags |= FLAG_PENDING_TRACKING;
+
+      if ((selector as any)._ss_selector) {
+        node._flags |= FLAG_BYPASS_CHECK;
+      }
+
+      return globalUnsubscribePool.get(node, subscriptions);
+    },
+    beginTransaction: () => {
+      invariant(!destroyed, "Cannot begin transaction on a destroyed store");
+      runtime.beginTransaction();
+    },
+    commitTransaction: () => runtime.commitTransaction(),
+    rollbackTransaction: () => runtime.rollbackTransaction(),
+    computed: (...args: any[]) => {
+      invariant(!destroyed, "Cannot create computed on a destroyed store");
+      invariant(
+        args.length > 0,
+        "computed requires at least one argument (selector or combiner)",
+      );
+      return runtime.computed(...args);
+    },
+    enableInstrumentation: (options) => runtime.enableInstrumentation(options),
+    destroy: () => {
+      destroyed = true;
+      subscriptions.clear();
+      selectors.clear();
+      graph.clear();
+    },
+    getMetrics: () => runtime.getMetrics(),
   };
 
-  const subscribe = <S>(
-    selector: (state: T) => S,
-    listener: (selectedState: S, prevSelectedState: S) => void,
-    options?: { equalityFn?: (a: S, b: S) => boolean }
-  ) => {
-    return subscriptionManager.subscribe(selector, listener, options?.equalityFn, state);
-  };
-
-  // Batch and Atomic are now effectively provided by automatic microtask batching,
-  // but we can keep them for semantic purposes or complex multi-store transactions.
-  // For now, they are removed to reflect the new, simpler, and more powerful core.
-  return {
-    get,
-    set,
-    subscribe,
-  };
+  const initialState =
+    typeof creator === "function"
+      ? (creator as any)(api.setState, api.getState, api)
+      : creator;
+  (runtime as any).state = sanitizeState(initialState);
+  (runtime as any).prevState = sanitizeState(initialState);
+  return api;
 }

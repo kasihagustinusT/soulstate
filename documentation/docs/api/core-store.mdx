@@ -12,58 +12,72 @@ The `createStore` function is the foundation of SoulState. It creates a store in
 
 ## `createStore`
 
-Creates a new store instance with the provided initial state.
+Creates a new store instance. It can take either an initial state object or a "creator" function.
 
 ### Signature
 
 <CodeBlock language="typescript">
-{`function createStore<T extends object>(
-  initialState: T
-): Store<T>;
+{`function createStore<T extends State>(
+  creator: StateCreator<T> | T
+): StoreApi<T>;
 `}
 </CodeBlock>
 
-- **`initialState`**: The initial state object for your store.
-- **Returns**: A `Store<T>` instance with `get`, `set`, and `subscribe` methods.
+- **`creator`**: The initial state object or a function to create the state.
+- **Returns**: A `StoreApi<T>` instance.
 
-### Basic Usage
+### Using an Initial State Object
 
 <CodeBlock language="typescript">
 {`import { createStore } from 'soulstate';
 
-// Create a store with initial state
 export const counterStore = createStore({
-  count: 0,
-  user: null
+  count: 0
 });
+`}
+</CodeBlock>
 
-// Define actions as separate functions
-export const counterActions = {
-  increment: () => counterStore.set((state) => ({ count: state.count + 1 })),
-  setUser: (user: any) => counterStore.set({ user }),
-  reset: () => counterStore.set({ count: 0, user: null })
-};
+### Using a Creator Function (Zustand style)
+
+The creator function receives `setState`, `getState`, and `api` as arguments, allowing you to define actions directly inside the store.
+
+<CodeBlock language="typescript">
+{`import { createStore } from 'soulstate';
+
+export const useBearStore = createStore((setState, getState) => ({
+  bears: 0,
+  increase: () => setState((state) => ({ bears: state.bears + 1 })),
+  reset: () => setState({ bears: 0 })
+}));
 `}
 </CodeBlock>
 
 ---
 
-## Store Interface
+## `StoreApi` Interface
 
-`createStore` returns a `Store` object with three core methods:
+`createStore` returns a `StoreApi` object with the following methods:
 
 <CodeBlock language="typescript">
-{`export interface Store<T> {
-  get: () => T;
-  set: (updater: StateUpdater<T>) => void;
+{`export interface StoreApi<T extends State> {
+  getState: () => T;
+  setState: (updater: PartialState<T>, replace?: boolean, sync?: boolean) => void;
   subscribe: <S>(
-    selector: (state: T) => S,
-    listener: (selectedState: S, prevSelectedState: S) => void,
-    options?: { equalityFn?: (a: S, b: S) => boolean }
+    selector: Selector<T, S>,
+    listener: Listener<S>,
+    options?: SubscribeOptions<S>
   ) => () => void;
+  computed: {
+    <S>(selector: Selector<T, S>, name?: string): Computed<S>;
+    <A, B, R>(a: Computed<A> | Selector<T, A>, b: Computed<B> | Selector<T, B>, combiner: (a: A, b: B) => R): Computed<R>;
+  };
+  beginTransaction: () => void;
+  commitTransaction: () => void;
+  rollbackTransaction: () => void;
+  enableInstrumentation: (options?: RuntimeInstrumentation) => void;
+  getMetrics: () => MetricsSnapshot;
+  destroy: () => void;
 }
-
-type StateUpdater<T> = Partial<T> | ((state: T) => Partial<T> | T);
 `}
 </CodeBlock>
 
@@ -71,205 +85,52 @@ type StateUpdater<T> = Partial<T> | ((state: T) => Partial<T> | T);
 
 ## Store Methods
 
-### `store.get()`
+### `store.getState()`
 
 Returns the current state of the store.
 
 - **Signature**: `() => T`
-- **Behavior**: Provides a direct, non-reactive snapshot of the state. Does not create a subscription.
+- **Behavior**: Returns the current state. If a transaction is active, returns the buffered state from the transaction engine.
 
-<CodeBlock language="typescript">
-{`import { counterStore } from './store';
+### `store.setState()`
 
-function logCurrentState() {
-  // Get current state without subscribing
-  const state = counterStore.get();
-  console.log('Current count:', state.count);
-  console.log('Current user:', state.user);
-}
+Updates the store's state.
 
-// In React components, prefer useStore for reactive reads
-function Counter() {
-  const count = useStore(counterStore, state => state.count);
-  // ...
-}
-`}
-</CodeBlock>
-
-### `store.set()`
-
-Updates the store's state. Supports both direct object updates and functional updates.
-
-- **Signature**: `(updater: StateUpdater<T>) => void`
-- **Behavior**: All updates are automatically batched using microtasks.
-
-**Object Update:**
-<CodeBlock language="typescript">
-{`// Direct object update - merges with current state
-counterStore.set({ count: 5 });
-counterStore.set({ user: { name: 'John', age: 30 } });
-
-// Multiple properties at once
-counterStore.set({ count: 10, user: null });
-`}
-</CodeBlock>
-
-**Functional Update:**
-<CodeBlock language="typescript">
-{`// Recommended for updates that depend on current state
-counterStore.set((state) => ({ count: state.count + 1 }));
-counterStore.set((state) => ({ 
-  user: { ...state.user, age: state.user.age + 1 }
-}));
-`}
-</CodeBlock>
-
-**Performance Optimization:**
-<CodeBlock language="typescript">
-{`// SoulState automatically optimizes updates:
-// - Skips updates if values haven't changed
-// - Batches multiple updates into single notification
-// - Uses structural sharing to minimize object creation
-
-const handleOptimizedUpdate = () => {
-  counterStore.set({ count: 5 });     // 🚫 No immediate re-render
-  counterStore.set({ count: 5 });     // 🚫 Skipped (same value)
-  counterStore.set({ count: 10 });    // 🚫 No immediate re-render
-  // ✅ Single re-render with final state (count: 10)
-};
-`}
-</CodeBlock>
+- **Signature**: `(updater, replace?, sync?) => void`
+- **Parameters**:
+  - `updater`: Partial state object or a function returning partial state.
+  - `replace` (optional): If true, replaces the entire state object instead of merging.
+  - `sync` (optional): If true, bypasses the microtask scheduler and propagates changes immediately to all subscribers.
 
 ### `store.subscribe()`
 
-Low-level method to subscribe to state changes. Powers the `useStore` React hook.
+Subscribes to state changes with granular dependency tracking.
 
 - **Signature**: `<S>(selector, listener, options?) => () => void`
-- **Returns**: Unsubscribe function
+- **Options**:
+  - `equalityFn`: Custom comparison function (defaults to `Object.is`).
+  - `fireImmediately`: If true, executes the listener immediately with the current state upon subscription.
 
-**Parameters:**
-- `selector: (state: T) => S` - Extracts the slice of state to watch
-- `listener: (newValue: S, oldValue: S) => void` - Called when selected state changes
-- `options.equalityFn?: (a: S, b: S) => boolean` - Custom equality function (default: `Object.is`)
+### `store.computed()`
 
-```tsx
-import { counterStore } from './store';
+Creates a derived, memoized state node that is part of the reactive graph.
 
-// Subscribe to count changes
-const unsubscribe = counterStore.subscribe(
-  (state) => state.count,
-  (newCount, oldCount) => {
-    console.log(`Count changed from ${oldCount} to ${newCount}`);
-  }
-);
+- **Signature**: `(selector, name?)` or `(...deps, combiner)`
+- **Behavior**: Computed nodes are lazily evaluated and cached. They recompute only when their dependencies change, in deterministic topological order.
 
-// Subscribe with custom equality (shallow comparison)
-import { shallow } from 'soulstate/utils';
+### `store.beginTransaction()` / `commitTransaction()`
 
-const unsubscribeUser = counterStore.subscribe(
-  (state) => ({ count: state.count, user: state.user }),
-  (newData, oldData) => {
-    console.log('Count or user changed:', newData);
-  },
-  { equalityFn: shallow }
-);
+Buffers multiple updates into a single atomic propagation cycle. Ideal for complex multi-step state transitions.
 
-// Trigger updates
-counterStore.set({ count: 10 });
-counterStore.set({ user: { name: 'Alice' } });
+### `store.enableInstrumentation()`
 
-// Clean up subscriptions
-unsubscribe();
-unsubscribeUser();
-```
+Enables systems-grade diagnostics for profiling the runtime propagation and selector performance.
 
-<Admonition type="warning" title="React Usage">
-  <p>In React components, always prefer the <code>useStore</code> hook over direct <code>subscribe</code> calls. <code>useStore</code> handles component lifecycle, cleanup, and integrates properly with React's rendering system.</p>
+
+<Admonition type="info" title="Granular Reactivity">
+  <p>SoulState uses a <code>DependencyGraph</code> to track which keys are accessed by your selector. It only executes the listener if one of the accessed keys has changed in the state.</p>
 </Admonition>
 
----
-
-## Store Creation Patterns
-
-### Basic Store
-<CodeBlock language="typescript">
-{`// Simple counter store
-export const counterStore = createStore({ count: 0 });
-
-export const counterActions = {
-  increment: () => counterStore.set(state => ({ count: state.count + 1 })),
-  decrement: () => counterStore.set(state => ({ count: state.count - 1 })),
-  reset: () => counterStore.set({ count: 0 })
-};
-`}
-</CodeBlock>
-
-### Complex Store with Multiple Actions
-```tsx
-// User management store
-interface UserState {
-  user: { id: string; name: string; email: string } | null;
-  isLoggedIn: boolean;
-  preferences: { theme: string; language: string };
-}
-
-export const userStore = createStore<UserState>({
-  user: null,
-  isLoggedIn: false,
-  preferences: { theme: 'light', language: 'en' }
-});
-
-export const userActions = {
-  login: (userData: any) => userStore.set({ 
-    user: userData, 
-    isLoggedIn: true 
-  }),
-  
-  logout: () => userStore.set({ 
-    user: null, 
-    isLoggedIn: false 
-  }),
-  
-  updatePreferences: (updates: Partial<UserState['preferences']>) => 
-    userStore.set(state => ({
-      preferences: { ...state.preferences, ...updates }
-    })),
-  
-  updateProfile: (updates: Partial<UserState['user']>) =>
-    userStore.set(state => ({
-      user: state.user ? { ...state.user, ...updates } : null
-    }))
-};
-```
----
-
-## Advanced: Standalone Usage
-
-While typically used with React, SoulState stores can be used in any JavaScript environment:
-
-```tsx
-// Node.js or non-React usage
-const appState = createStore({ status: 'idle', data: null });
-
-// Subscribe to changes
-const unsubscribe = appState.subscribe(
-  state => state.status,
-  (newStatus, oldStatus) => {
-    console.log(`Status: ${oldStatus} → ${newStatus}`);
-  }
-);
-
-// Update state
-appState.set({ status: 'loading' });
-appState.set(state => ({ data: { items: [] }, status: 'success' }));
-
-// Get current state
-console.log('Current state:', appState.get());
-
-// Clean up
-unsubscribe();
-```
-
-<Admonition type="success" title="Key Takeaway">
-  <p><code>createStore</code> provides a minimal yet powerful foundation for state management. With just three methods—<code>get</code>, <code>set</code>, and <code>subscribe</code>—you get automatic batching, optimal performance, and seamless React integration.</p>
+<Admonition type="success" title="Performance">
+  <p>Subscriptions are managed using a doubly linked list for $O(1)$ add/remove operations, ensuring SoulState scales effortlessly to thousands of subscribers.</p>
 </Admonition>

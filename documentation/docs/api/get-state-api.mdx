@@ -1,0 +1,49 @@
+# API: `getState`
+
+The `getState` method provides a direct, non-reactive way to access the current store state.
+
+## `store.getState()`
+
+Returns the current state object.
+
+### Signature
+
+<CodeBlock language="typescript">
+{`function getState(): T;
+`}
+</CodeBlock>
+
+### Behavior
+
+- **Direct Access**: Unlike `useStore`, calling `getState` does not create a subscription or trigger any dependency tracking.
+- **Transaction Buffering**: If a transaction is currently active (`beginTransaction`), `getState` returns the **buffered state**, which includes all updates made since the transaction started.
+- **Snapshot Semantics**: The returned object is a stable snapshot of the state at that point in time. Because SoulState uses immutable updates, you can safely hold onto this reference without worrying about it changing from under you.
+
+### Usage in Actions
+
+`getState` is most commonly used inside actions or utilities to read current values before making a state transition.
+
+<CodeBlock language="typescript">
+{`const actions = {
+  toggleStatus: () => {
+    const { status } = store.getState(); // Read current
+    store.setState({ status: status === 'online' ? 'away' : 'online' });
+  }
+};
+`}
+</CodeBlock>
+
+---
+
+## When to use `getState` vs `useStore`
+
+| Scenario | Recommendation |
+| :--- | :--- |
+| **Inside a React Component** | Use `useStore` for reactivity. |
+| **Inside an Event Handler** | Use `getState` for one-off reads. |
+| **Inside an Action/Utility** | Use `getState`. |
+| **Outside React (Legacy Integration)** | Use `getState`. |
+
+<Admonition type="warning" title="Non-Reactive">
+  <p>Calling <code>getState</code> inside a React component will <strong>not</strong> cause the component to re-render when the state changes. Always prefer <code>useStore</code> for UI-bound data.</p>
+</Admonition>

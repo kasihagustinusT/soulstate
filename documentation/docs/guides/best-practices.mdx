@@ -1,427 +1,84 @@
+# Systems-Grade Best Practices
+
+SoulState is engineered for high-density reactive environments. Following these best practices ensures that your application remains deterministic, scalable, and easy to maintain.
+
+## 1. Embrace Surgical Selectors
+
+The most fundamental rule of SoulState: **Select only what you need**.
+
+<CodeBlock language="tsx">
+{`// ❌ Bad: Component re-renders on ANY change to user
+const user = useStore(store, s => s.user);
+
+// ✅ Good: Component re-renders only when user.id changes
+const userId = useStore(store, s => s.user.id);
+`}
+</CodeBlock>
+
+By being surgical with your selectors, you align your UI with the **Invalidation Graph**, maximizing throughput and minimizing re-render churn.
+
 ---
-title: Best Practices
-sidebar_label: Best Practices
+
+## 2. Co-locate Logic with `computed`
+
+Avoid putting complex data transformations inside your React components or standard selectors. Use `computed` nodes to build a cached, topologically stable derived state tree.
+
+<CodeBlock language="typescript">
+{`// Layering computeds builds a robust reactive pipeline
+const activeUsers = store.computed(s => s.users.filter(u => u.active));
+const adminCount = store.computed(() => activeUsers.value.filter(u => u.role === 'admin').length);
+`}
+</CodeBlock>
+
 ---
 
-import CodeBlock from '@theme/CodeBlock';
-import { Admonition } from '@site/src/components/Admonition';
+## 3. Use Transactions for Atomic Ingestion
 
-# Best Practices for SoulState
-
-Following these best practices ensures your SoulState applications are performant, maintainable, and scalable. This guide covers store architecture, performance optimization, and React integration patterns.
-
-## 1. Store Architecture
-
-### Modular Domain Stores
-**Principle**: Create focused stores for each business domain instead of a monolithic store.
+When performing multiple related updates (e.g., after a WebSocket message or API response), always use the **Transaction API**. This treats the multi-step update as a single systems-grade event.
 
 <CodeBlock language="typescript">
-{`// ✅ Good: Separate domain stores
-// stores/userStore.ts
-export const userStore = createStore({
-  users: [],
-  loading: false
-});
-
-export const userActions = {
-  fetchUsers: async () => {
-    userStore.set({ loading: true });
-    // API call
-    userStore.set({ users: data, loading: false });
-  }
-};
-
-// stores/productStore.ts  
-export const productStore = createStore({
-  products: [],
-  categories: []
-});
-
-// stores/uiStore.ts
-export const uiStore = createStore({
-  theme: 'light',
-  sidebarOpen: true
-};`}
+{`store.beginTransaction();
+store.setState({ items: newItems });
+store.setState({ lastSync: Date.now() });
+store.commitTransaction(); // Atomic propagation
+`}
 </CodeBlock>
 
-<Admonition type="info" title="Why Modular Stores?">
-  <p>Smaller stores mean fewer subscribers to notify, better separation of concerns, and easier testing and maintenance.</p>
-</Admonition>
+---
 
-### Actions Separation
-**Principle**: Keep actions as separate functions rather than embedding them in store state.
+## 4. Respect the Immutable Contract
+
+SoulState relies on **strict immutability** for its change detection. Never mutate state directly.
 
 <CodeBlock language="typescript">
-{`// ✅ Correct: Actions as separate exports
-export const counterStore = createStore({ count: 0 });
+{`// ❌ Never do this
+const { items } = store.getState();
+items.push(newItem);
 
-export const counterActions = {
-  increment: () => counterStore.set(state => ({ count: state.count + 1 })),
-  decrement: () => counterStore.set(state => ({ count: state.count - 1 })),
-  reset: () => counterStore.set({ count: 0 })
-};
-
-// ❌ Avoid: Actions in store state (not supported)
-export const counterStore = createStore({
-  count: 0,
-  increment: () => set(...) // This pattern doesn't work in SoulState
-};`}
+// ✅ Always do this
+store.setState(s => ({ items: [...s.items, newItem] }));
+`}
 </CodeBlock>
 
-## 2. Performance Optimization
+---
 
-### Surgical Selectors
-**Principle**: Subscribe to the minimal data needed by each component.
+## When NOT to use SoulState
 
-<CodeBlock language="tsx">
-{`// ✅ Good: Precise selectors
-function UserProfile({ userId }) {
-  // Only re-renders when this specific user's name changes
-  const userName = useStore(
-    userStore, 
-    state => state.users.find(u => u.id === userId)?.name
-  );
-  
-  return <div>{userName}</div>;
-}
+While SoulState is a powerful systems-grade runtime, it is not always the right choice:
 
-// ❌ Avoid: Over-subscribing
-function UserProfile({ userId }) {
-  // Re-renders when ANY user changes
-  const users = useStore(userStore, state => state.users);
-  const user = users.find(u => u.id === userId);
-  return <div>{user?.name}</div>;
-}`}
-</CodeBlock>
+1.  **Simple To-Do Apps**: If your app has fewer than 50 components and 10 state keys, the initialization overhead of SoulState's Invalidation Graph is unnecessary. Use **Zustand** instead.
+2.  **Highly Volatile Atoms**: If your state consists of thousands of independent atoms that never interact, a pure atomic library like **Jotai** may be more idiomatic.
+3.  **One-Time Global Broadcasts**: If your updates *always* affect 100% of your subscribers (e.g., a "Reset All" action in a simple app), SoulState's surgical overhead makes it slower than a simple global event emitter.
 
-### Shallow Equality for Objects
-**Principle**: Use `shallow` equality when selecting multiple properties into a new object.
+---
 
-<CodeBlock language="tsx">
-{`import { useStore } from 'soulstate/react';
-import { shallow } from 'soulstate/utils';
+## Production Checklist
 
-// ✅ Good: Use shallow for object selections
-const { user, posts } = useStore(
-  store,
-  state => ({ 
-    user: state.user,
-    posts: state.posts 
-  }),
-  shallow // Prevents re-renders when object contents haven't changed
-);
+- [ ]  **Instrumentation**: Enable `onFlush` profiling in staging to detect slow propagation paths.
+- [ ]  **Granularity**: Verify that no component is subscribing to the entire root state object.
+- [ ]  **Error Boundaries**: Use `try...catch` with `rollbackTransaction` to ensure store consistency during complex updates.
+- [ ]  **Destruction**: Call `store.destroy()` when the store instance is no longer needed (e.g., on feature unmount) to free graph memory.
 
-// ❌ Avoid: Object creation without shallow
-const { user, posts } = useStore(
-  store,
-  state => ({ user: state.user, posts: state.posts })
-  // Re-renders on every state change due to new object creation
-);`}
-</CodeBlock>
-
-### Multiple Fine-grained Subscriptions
-**Principle**: Use multiple `useStore` calls for independent data pieces.
-
-<CodeBlock language="tsx">
-{`// ✅ Good: Independent subscriptions
-function Dashboard() {
-  const user = useStore(userStore, state => state.user);
-  const notifications = useStore(uiStore, state => state.notifications);
-  const theme = useStore(uiStore, state => state.theme);
-  
-  // Each subscription updates independently
-  return <div className={theme}>...</div>;
-}
-
-// ❌ Avoid: Combined subscriptions that cause unnecessary re-renders
-function Dashboard() {
-  const { user, notifications, theme } = useStore(
-    combinedStore,
-    state => ({
-      user: state.user,
-      notifications: state.notifications, 
-      theme: state.theme
-    }),
-    shallow
-  );
-  // Re-renders if any of the three properties change
-};`}
-</CodeBlock>
-
-## 3. State Updates
-
-### Immutable Updates
-**Principle**: Always create new objects/arrays when updating state.
-
-<CodeBlock language="tsx">
-{`// ✅ Good: Immutable updates
-userActions.updateUser = (userId, updates) => {
-  userStore.set(state => ({
-    users: state.users.map(user =>
-      user.id === userId ? { ...user, ...updates } : user
-    )
-  }));
-};
-
-// ❌ Avoid: Direct mutation (WON'T WORK)
-userActions.updateUser = (userId, updates) => {
-  userStore.set(state => {
-    const user = state.users.find(u => u.id === userId);
-    Object.assign(user, updates); // ❌ Mutation - won't trigger updates
-    return state;
-  });
-};`}
-</CodeBlock>
-
-### Batch Related Updates
-**Principle**: Group related state changes in a single `set` call.
-
-<CodeBlock language="typescript">
-{`// ✅ Good: Batch related updates
-const formActions = {
-  submitForm: (formData) => {
-    // Single update for multiple state changes
-    formStore.set(state => ({
-      data: formData,
-      submitted: true,
-      loading: false,
-      lastSubmitted: new Date()
-    }));
-  }
-};
-
-// ❌ Avoid: Multiple separate updates
-const formActions = {
-  submitForm: (formData) => {
-    formStore.set({ data: formData });     // 🚫
-    formStore.set({ submitted: true });    // 🚫  
-    formStore.set({ loading: false });     // 🚫
-    formStore.set({ lastSubmitted: new Date() }); // 🚫
-    // Results in 4 separate re-renders
-  }
-};`}
-</CodeBlock>
-
-## 4. Async Operations
-
-### Async Actions Pattern
-**Principle**: Handle async operations with proper loading and error states.
-
-```tsx
-// ✅ Good: Async action pattern
-export const apiActions = {
-  fetchUsers: async () => {
-    userStore.set({ loading: true, error: null });
-    
-    try {
-      const response = await fetch('/api/users');
-      if (!response.ok) throw new Error('Failed to fetch');
-      const users = await response.json();
-      
-      userStore.set({ 
-        users, 
-        loading: false,
-        lastFetched: new Date()
-      });
-    } catch (error) {
-      userStore.set({ 
-        error: error.message, 
-        loading: false 
-      });
-    }
-  }
-};
-```
-
-### Optimistic Updates
-**Principle**: Update UI immediately, then handle server sync.
-
-```tsx
-// ✅ Good: Optimistic updates
-export const todoActions = {
-  addTodo: async (text: string) => {
-    const tempId = `temp-${Date.now()}`;
-    const newTodo = { id: tempId, text, completed: false };
-    
-    // Optimistic update
-    todoStore.set(state => ({
-      todos: [...state.todos, newTodo]
-    }));
-    
-    try {
-      // Server sync
-      const savedTodo = await api.createTodo(text);
-      
-      // Replace temporary todo with server version
-      todoStore.set(state => ({
-        todos: state.todos.map(todo =>
-          todo.id === tempId ? savedTodo : todo
-        )
-      }));
-    } catch (error) {
-      // Rollback on error
-      todoStore.set(state => ({
-        todos: state.todos.filter(todo => todo.id !== tempId)
-      }));
-      // Show error notification
-      uiActions.addNotification({
-        type: 'error',
-        title: 'Failed to create todo'
-      });
-    }
-  }
-};
-```
-
-## 5. TypeScript Best Practices
-
-### Proper Typing
-**Principle**: Leverage TypeScript for type safety and better developer experience.
-
-<CodeBlock language="typescript">
-{`// ✅ Good: Full TypeScript support
-interface User {
-  id: string;
-  name: string;
-  email: string;
-  role: 'admin' | 'user';
-}
-
-interface UserState {
-  users: User[];
-  currentUser: User | null;
-  loading: boolean;
-}
-
-export const userStore = createStore<UserState>({
-  users: [],
-  currentUser: null,
-  loading: false
-});
-
-// TypeScript infers everything correctly
-const user = useStore(userStore, state => state.currentUser);
-// user is automatically typed as User | null`}
-</CodeBlock>
-
-### Derived State Selectors
-**Principle**: Create reusable selectors for computed values.
-
-<CodeBlock language="typescript">
-{`// ✅ Good: Derived state selectors
-export const userSelectors = {
-  getActiveUsers: (state: UserState) => 
-    state.users.filter(user => !user.deactivated),
-  
-  getAdmins: (state: UserState) =>
-    state.users.filter(user => user.role === 'admin'),
-  
-  getUserById: (state: UserState, userId: string) =>
-    state.users.find(user => user.id === userId)
-};
-
-// Usage in components
-const activeUsers = useStore(userStore, userSelectors.getActiveUsers);
-const adminUsers = useStore(userStore, userSelectors.getAdmins);`}
-</CodeBlock>
-
-## 6. Testing Patterns
-
-### Testable Actions
-**Principle**: Structure actions for easy testing.
-
-<CodeBlock language="typescript">
-{`// ✅ Good: Testable actions
-export const counterActions = {
-  increment: (amount = 1) => {
-    counterStore.set(state => ({ count: state.count + amount }));
-  }
-};
-
-// Easy to test
-test('increment action', () => {
-  const store = createStore({ count: 0 });
-  const actions = { increment: () => store.set(state => ({ count: state.count + 1 })) };
-  
-  actions.increment();
-  expect(store.get().count).toBe(1);
-});`}
-</CodeBlock>
-
-### Mock Stores for Testing
-**Principle**: Use mock stores for component testing.
-
-<CodeBlock language="tsx">
-{`// ✅ Good: Mock stores for testing
-// __tests__/UserComponent.test.tsx
-const mockUserStore = createStore({
-  user: { name: 'Test User', email: 'test@example.com' },
-  loading: false
-});
-
-jest.mock('../stores/userStore', () => ({
-  userStore: mockUserStore,
-  userActions: { /* mock actions */ }
-}));
-
-test('displays user name', () => {
-  render(<UserProfile />);
-  expect(screen.getByText('Test User')).toBeInTheDocument();
-});`}
-</CodeBlock>
-
-## 7. Performance Monitoring
-
-### Avoid Common Pitfalls
-**Principle**: Be aware of performance anti-patterns.
-
-<CodeBlock language="tsx">
-{`// ❌ Performance pitfalls to avoid
-
-// 1. Creating new functions in render
-function UserList() {
-  // New function on every render - causes unnecessary re-subscriptions
-  const users = useStore(store, state => state.users.filter(u => u.active));
-  
-  return <div>{users.map(user => <User key={user.id} user={user} />)}</div>;
-}
-
-// ✅ Solution: Memoize selectors or move logic outside
-const selectActiveUsers = (state) => state.users.filter(u => u.active);
-
-function UserList() {
-  const users = useStore(store, selectActiveUsers);
-  return <div>{users.map(user => <User key={user.id} user={user} />)}</div>;
-}
-
-// 2. Over-subscribing to large arrays
-function UserTable() {
-  // Re-renders when any user in the array changes
-  const users = useStore(userStore, state => state.users);
-  
-  return <table>{/* ... */}</table>;
-}
-
-// ✅ Solution: Use row-level components
-function UserTable() {
-  const userIds = useStore(userStore, state => state.users.map(u => u.id));
-  
-  return (
-    <table>
-      {userIds.map(id => <UserTableRow key={id} userId={id} />)}
-    </table>
-  );
-}`}
-</CodeBlock>
-
-<Admonition type="success" title="Key Takeaways">
-  <ul>
-    <li>✅ Use modular stores for better separation of concerns</li>
-    <li>✅ Employ surgical selectors to minimize re-renders</li>
-    <li>✅ Leverage <code>shallow</code> equality for object selections</li>
-    <li>✅ Batch related updates in single <code>set</code> calls</li>
-    <li>✅ Follow immutable update patterns</li>
-    <li>✅ Structure async actions with proper state management</li>
-    <li>✅ Use TypeScript for type safety and better DX</li>
-  </ul>
+<Admonition type="success" title="Systems-Grade Philosophy">
+  <p>SoulState is designed for <strong>complexity at scale</strong>. By following these patterns, you treat state management as a systems engineering task, resulting in a predictable, high-performance runtime for your enterprise application.</p>
 </Admonition>

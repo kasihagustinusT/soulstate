@@ -32,14 +32,20 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Format Check
+        run: npx prettier --check "src/**/*.{ts,tsx}" "tests/**/*.{ts,tsx}"
+
       - name: Lint
         run: npm run lint --if-present
 
       - name: Type Check
         run: npm run typecheck --if-present
 
-      - name: Test
-        run: npm test --if-present
+      - name: Security Audit
+        run: npm audit --audit-level=high
+
+      - name: Test with Coverage
+        run: npx vitest run --coverage
 
       - name: Build package
         run: npm run build --if-present

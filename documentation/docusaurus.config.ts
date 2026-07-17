@@ -11,7 +11,7 @@ const config: Config = {
     v4: true,
   },
 
-  url: 'https://your-site.com',
+  url: 'https://soulstate.js.org',
   baseUrl: '/',
 
   organizationName: 'kasihagustinusT',
@@ -44,7 +44,7 @@ const config: Config = {
   ],
 
   themeConfig: {
-    image: 'img/social-card.jpg',
+    image: 'img/SoulState.jpg',
 
     colorMode: {
       disableSwitch: true,  

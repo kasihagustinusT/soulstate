@@ -1,26 +1,24 @@
-// For a Zustand-like library, a Provider is often optional, as stores are module-level singletons.
-// However, it can be useful for request-scoped stores in SSR or for dependency injection.
+import * as React from "react";
+import { StoreApi, State } from "../core/types";
 
-import * as React from 'react';
+const StoreContext = React.createContext<StoreApi<any> | null>(null);
 
-import { Store } from '../core/store';
+export interface ProviderProps<T extends State> {
+  store: StoreApi<T>;
+  children: React.ReactNode;
+}
 
-const StoreContext = React.createContext<Store<any> | null>(null);
-
-export const Provider = <T,>({
+export const Provider = <T extends State>({
   store,
   children,
-}: {
-  store: Store<T>;
-  children: React.ReactNode;
-}) => {
+}: ProviderProps<T>) => {
   return React.createElement(StoreContext.Provider, { value: store }, children);
 };
 
-export function useStoreContext<T>(): Store<T> {
+export function useStoreContext<T extends State>(): StoreApi<T> {
   const store = React.useContext(StoreContext);
   if (!store) {
-    throw new Error('useStoreContext must be used within a Provider');
+    throw new Error("useStoreContext must be used within a Provider");
   }
   return store;
 }

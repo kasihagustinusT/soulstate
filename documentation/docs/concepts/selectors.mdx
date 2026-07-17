@@ -1,179 +1,63 @@
-# Selectors
+# Selectors & Dependency Tracking
 
-Selectors are the cornerstone of SoulState's design and performance. A selector is a pure function that receives the entire state and returns a specific slice of it.
+Selectors are the primary mechanism for reading data from a SoulState store. In SoulState, selectors are not just passive functions; they are the entry point for **Automatic Dependency Tracking**.
 
-SoulState is **selector‑driven**. Components subscribe to state changes *through* selectors, ensuring precise and efficient updates.
+## Automatic Tracking Proxy
 
-```tsx
-import { useStore } from 'soulstate/react';
-import { counterStore } from './store';
+When a selector runs (via `useStore` or `computed`), SoulState executes it using a **Zero-Allocation Tracking Proxy**. This proxy intercepts property accesses and records which keys your selector depends on.
 
-// A simple selector extracting `count` from the full state
-const countSelector = (state) => state.count;
-
-function Counter() {
-  const count = useStore(counterStore, countSelector);
-  return <div>Count: {count}</div>;
-}
-```
+<CodeBlock language="typescript">
+{`const name = useStore(store, s => s.user.name);
+// 1. Selector runs
+// 2. Proxy detects access to 'user'
+// 3. Node is registered in the Invalidation Graph for the 'user' key
+`}
+</CodeBlock>
 
 ---
 
-## Why Selectors Matter
+## The Recomputation Flow
 
-Without selectors, a component would subscribe to the entire store, causing re-renders whenever *any* part of the state updates. Selectors allow focused subscriptions: a component re-renders only when the **result of the selector changes**.
+SoulState's engine ensures that selectors only re-execute when necessary:
 
-> **Golden Rule:** Select only the minimal state your component needs.
+1.  **State Update**: `setState({ count: 1 })` is called.
+2.  **Invalidation**: The `InvalidationGraph` identifies all nodes depending on `count`.
+3.  **Topological Sort**: Affected nodes are sorted by their dependency level.
+4.  **Surgical Execution**: Only the selectors for affected nodes are executed.
 
----
-
-## Selecting Multiple Values
-
-### ❌ Anti-pattern: Returning a New Object
-
-```tsx
-// Anti-pattern: new object every run → always re-renders
-const data = useStore(counterStore, (state) => ({
-  count: state.count,
-  user: state.user,
-}));
-```
-
-Because the selector returns a **new object reference**, SoulState's default equality check marks it as "changed" even if values stay identical.
-
-### ✅ Solution: Use `shallow`
-
-Use SoulState’s shallow comparison for multi-field selections.
-
-```tsx
-import { shallow } from 'soulstate/utils';
-
-const data = useStore(
-  counterStore,
-  (state) => ({
-    count: state.count,
-    user: state.user,
-  }),
-  shallow
-);
-```
+### Irrelevant Update Elimination
+If you have a selector `s => s.user.name` and the `count` key is updated, SoulState's engine **skips this selector entirely**. It is never even called, as the engine knows it has no dependency on `count`.
 
 ---
 
-## Multiple Independent Selectors
+## Computed: Cached Selectors
 
-For finer granularity and better subscription isolation, call `useStore` multiple times.
+`store.computed` allows you to define derived state that is part of the core reactive graph. Unlike component-level selectors, computed values are:
+- **Cached**: Recomputed only when their dependencies change.
+- **Lazy**: Computed only when accessed or when a downstream subscriber requires them.
+- **Topologically Stable**: Guaranteed to run in the correct order in multi-level dependency chains.
 
-```tsx
-function UserProfile() {
-  const count = useStore(counterStore, (s) => s.count);
-  const user = useStore(counterStore, (s) => s.user);
-  const isActive = useStore(counterStore, (s) => s.isActive);
+<CodeBlock language="typescript">
+{`const total = store.computed(s => s.price * s.quantity);
 
-  return (
-    <div>
-      <h1>{user.name}</h1>
-      <p>Count: {count}</p>
-      <p>Status: {isActive ? 'Active' : 'Inactive'}</p>
-    </div>
-  );
-}
-```
+// First access: computes and caches
+console.log(total.value); 
 
-> SoulState batches store notifications, so multiple selector calls do **not** produce extra emission overhead.
+// Second access: returns cached value
+console.log(total.value); 
+`}
+</CodeBlock>
 
 ---
 
-## Derived State via Selectors
+## Selector Tradeoffs
 
-Selectors can compute derived data based solely on state.
+While automatic tracking is powerful, it has specific characteristics:
 
-```tsx
-function TodoStats() {
-  const total = useStore(todoStore, (s) => s.todos.length);
-  const completed = useStore(todoStore, (s) => s.todos.filter(t => t.completed).length);
-  const active = useStore(todoStore, (s) => s.todos.filter(t => !t.completed).length);
+- **Key-Level Granularity**: SoulState tracks dependencies at the top-level key of the store object.
+- **First-Run Overhead**: The first execution of a selector involves proxy overhead to build the initial dependency map.
+- **Dynamic Re-tracking**: If your selector logic changes (e.g., `s => s.toggle ? s.a : s.b`), SoulState automatically updates the dependency graph on the next execution.
 
-  return (
-    <div>
-      <p>Total: {total}</p>
-      <p>Completed: {completed}</p>
-      <p>Active: {active}</p>
-    </div>
-  );
-}
-```
-
-Selectors run whenever the store updates, so expensive selectors should be memoized.
-
----
-
-## Memoizing Expensive Selectors
-
-SoulState does not memoize selector results internally. If your selector performs heavy work, memoize it using React or libraries like `reselect`.
-
-### Using `useMemo`
-
-```tsx
-function ExpensiveList() {
-  const todos = useStore(todoStore, (s) => s.todos);
-  const filter = useStore(todoStore, (s) => s.filter);
-
-  const filtered = useMemo(() => {
-    return todos.filter(todo => {
-      if (filter === 'active') return !todo.completed;
-      if (filter === 'completed') return todo.completed;
-      return true;
-    });
-  }, [todos, filter]);
-
-  return <div>{filtered.length} items</div>;
-}
-```
-
-### Using `reselect`
-
-```ts
-import { createSelector } from 'reselect';
-
-const selectTodos = (s) => s.todos;
-const selectFilter = (s) => s.filter;
-
-export const selectVisibleTodos = createSelector(
-  [selectTodos, selectFilter],
-  (todos, filter) => {
-    return todos.filter(todo => {
-      if (filter === 'active') return !todo.completed;
-      if (filter === 'completed') return todo.completed;
-      return true;
-    });
-  }
-);
-
-// const visible = useStore(todoStore, selectVisibleTodos);
-```
-
----
-
-## Selector Best Practices
-
-### ✅ Do
-
-* Select the smallest possible slice of state
-* Use multiple `useStore` calls for independent values
-* Use `shallow` when returning objects
-* Memoize expensive computations
-* Keep selectors pure (depend only on state)
-
-### ❌ Don’t
-
-* Return new objects without shallow comparison
-* Select the entire state
-* Insert side effects in selectors
-* Base selector logic on external variables
-
----
-
-## Key Takeaway
-
-Selectors give you surgical precision over component re-renders. When used correctly, they ensure optimal rendering performance and predictable state‑driven UI behavior in SoulState.
+<Admonition type="success" title="Zero Manual Optimization">
+  <p>Unlike Redux or Zustand, you don't need to manually optimize selectors or worry about unstable function references. SoulState's runtime handles the complexity of dependency management for you.</p>
+</Admonition>

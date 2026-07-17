@@ -9,123 +9,88 @@ import CodeBlock from '@theme/CodeBlock';
 
 # Getting Started
 
-Welcome to SoulState! This guide will walk you through creating a store and connecting it to a React component. By the end, you'll see how SoulState enables surgical, high-performance state updates with minimal boilerplate.
+Welcome to SoulState! This guide will walk you through creating a systems-grade store and connecting it to a React component with surgical precision.
 
 ## 1. Installation
 
-First, install SoulState using your preferred package manager.
+Install SoulState via your preferred package manager. SoulState is zero-dependency and optimized for tree-shaking.
 
 <CodeBlock language="bash">
 {`npm install soulstate`}
 </CodeBlock>
 
-SoulState has no external dependencies, keeping your bundle size lean.
+## 2. Creating a Systems-Grade Store
 
-## 2. Creating a Store
-
-A "store" is an object that holds your state and provides methods to read and update it. You create one with the `createStore` function.
-
-Let's define a simple counter store in a file named `store.ts`.
+A SoulState store is a centralized reactive tree. You create one using `createStore`.
 
 <CodeBlock language="typescript">
 {`import { createStore } from 'soulstate';
 
-// Create the store with initial state
-export const counterStore = createStore({
-  count: 0
+// 1. Define your systems-grade state
+export const store = createStore({
+  count: 0,
+  user: { name: 'Alice', status: 'online' },
+  items: []
 });
 
-// Define actions as separate functions
-export const counterActions = {
-  increment: () => counterStore.set((state) => ({ count: state.count + 1 })),
-  decrement: () => counterStore.set((state) => ({ count: state.count - 1 })),
-  reset: () => counterStore.set({ count: 0 })
+// 2. Define surgical actions
+export const actions = {
+  increment: () => store.setState(s => ({ count: s.count + 1 })),
+  updateStatus: (status: string) => store.setState({ user: { ...store.getState().user, status } })
 };
 `}
 </CodeBlock>
 
-<Admonition type="info" title="What's happening here?">
-  <p><code>createStore</code> takes the initial state as its argument. We then define actions as separate functions that use the store's <code>set</code> method to update the state.</p>
+<Admonition type="info" title="Deterministic Propagation">
+  <p>Every <code>setState</code> call is batched via a deterministic microtask scheduler. If you call <code>increment</code> 10 times synchronously, SoulState will trigger exactly <strong>one</strong> propagation cycle.</p>
 </Admonition>
 
-## 3. Connecting to React Components
+## 3. Surgical React Integration
 
-To use the store in a React component, import the `useStore` hook from `soulstate/react` and the store you just created.
-
-The `useStore` hook requires two arguments:
-1. The store you want to use (`counterStore`).
-2. A **selector function** that picks a piece of state.
+Use the `useStore` hook to subscribe to specific data slices. SoulState uses a **Zero-Allocation Tracking Proxy** to identify exactly which keys your component depends on.
 
 <CodeBlock language="tsx">
-{`import { useStore } from 'soulstate/react';
-import { counterStore, counterActions } from './store';
+{`import { useStore } from 'soulstate'; // Exported from main package or 'soulstate/react'
+import { store, actions } from './store';
 
-// A selector to get the count value
-const selectCount = (state) => state.count;
-
-export function Counter() {
-  // This component subscribes ONLY to the 'count' value
-  const count = useStore(counterStore, selectCount);
+export function UserStatus() {
+  // This component surgically tracks 'user.status'
+  // Changes to 'count' or 'items' will NEVER trigger a re-render
+  const status = useStore(store, s => s.user.status);
 
   return (
     <div>
-      <h1>Count: {count}</h1>
-      <button onClick={counterActions.increment}>+1</button>
-      <button onClick={counterActions.decrement}>-1</button>
-      <button onClick={counterActions.reset}>Reset</button>
+      <p>Status: {status}</p>
+      <button onClick={() => actions.updateStatus('away')}>Set Away</button>
     </div>
   );
 }
 `}
 </CodeBlock>
 
-### The Power of Selectors
+### Why this is different
+In a global broadcast library (like Zustand), changing `count` would still trigger a selector re-run for `UserStatus`. In SoulState, the **Invalidation Graph** knows that `UserStatus` does not care about `count` and skips it entirely at the engine level.
 
-The key to SoulState's performance is the selector pattern:
+## 4. Derived State with `computed`
 
-- The `useStore(counterStore, selectCount)` call makes the `Counter` component listen **only** to changes in the `count` property.
-- If other properties were added to the store, this component would **not** re-render when they change.
-- Actions are called directly from the imported `counterActions`, maintaining clean separation of concerns.
+For complex derived data, use `store.computed`. These nodes are part of the core reactive graph, providing cached, glitch-free, and topologically stable values.
 
-This fine-grained subscription model ensures your component only re-renders when the exact data it needs has changed, eliminating wasted renders and keeping your UI fast and responsive.
+<CodeBlock language="typescript">
+{`// Create a derived node
+const isOnline = store.computed(s => s.user.status === 'online');
 
-<Admonition type="warning" title="Import Path Note">
-  <p>Make sure to import <code>useStore</code> from <code>'soulstate/react'</code> for React components, not from the main package.</p>
-</Admonition>
+// Access value (lazily computed and cached)
+console.log(isOnline.value); // true
 
-<Admonition type="danger" title="Anti-Pattern: Selecting the Whole State">
-  <p>Avoid selecting the entire state object in a single hook:
-  <code>const state = useStore(counterStore, state => state);</code>
-  This will cause the component to re-render on <strong>every</strong> state change, defeating the purpose of selector-based subscriptions.</p>
-</Admonition>
-
-## 4. Advanced Pattern: Multiple Selectors
-
-For more complex components, you can use multiple selectors to subscribe to different pieces of state:
-
-<CodeBlock language="tsx">
-{`import { useStore } from 'soulstate/react';
-import { counterStore, counterActions } from './store';
-
-export function Counter() {
-  // Subscribe to multiple pieces of state independently
-  const count = useStore(counterStore, (state) => state.count);
-  const isPositive = useStore(counterStore, (state) => state.count > 0);
-  const isEven = useStore(counterStore, (state) => state.count % 2 === 0);
-
-  return (
-    <div>
-      <h1>Count: {count}</h1>
-      <p>Positive: {isPositive ? '✅' : '❌'}</p>
-      <p>Even: {isEven ? '✅' : '❌'}</p>
-      <button onClick={counterActions.increment}>+1</button>
-      <button onClick={counterActions.decrement}>-1</button>
-    </div>
-  );
+// Subscribe to it in React
+function StatusBadge() {
+  const online = useStore(store, () => isOnline.value);
+  return <span>{online ? '🟢' : '⚪'}</span>;
 }
 `}
 </CodeBlock>
 
-<Admonition type="tip" title="Pro Tip">
-  <p>Each <code>useStore</code> call creates an independent subscription. Components only re-render when their specific selected values change, giving you surgical control over performance.</p>
+<Admonition type="tip" title="Systems-Grade Observability">
+  <p>Need to see how your store is performing? Enable instrumentation:</p>
+  <pre>store.enableInstrumentation({ onFlush: (d) => console.log(\`Flush took \${d}ms\`) });</pre>
 </Admonition>

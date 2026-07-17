@@ -1,0 +1,76 @@
+# API: Slice Abstraction
+
+Slices provide a way to organize your state into focused domains, combining state and actions into a single cohesive unit. This is especially useful for large-scale applications.
+
+## `createSlice`
+
+Creates a slice of the store state with its own actions.
+
+<CodeBlock language="typescript">
+{`import { createStore, createSlice } from 'soulstate';
+
+const userSlice = createSlice({
+  name: 'user',
+  initialState: { name: 'John', age: 30 },
+  reducers: {
+    setName: (state, name: string) => ({ name }),
+    incrementAge: (state) => ({ age: state.age + 1 }),
+  },
+});
+
+const store = createStore(userSlice);
+
+// Accessing state and actions
+const { name, setName } = store.getState().user;
+setName('Jane');
+`}
+</CodeBlock>
+
+### Options
+
+- **`name`**: (Required) A unique name for the slice. This will be the key under which the slice state is stored in the root store.
+- **`initialState`**: (Required) The initial state for this slice.
+- **`reducers`**: (Required) An object where each key is an action name and each value is a reducer function. Reducers receive the current slice state and any arguments passed to the action, and should return a partial or full new state for the slice.
+
+---
+
+## `combineSlices`
+
+Combines multiple slice creators into a single state creator that can be passed to `createStore`.
+
+<CodeBlock language="typescript">
+{`import { createStore, createSlice, combineSlices } from 'soulstate';
+
+const userSlice = createSlice({
+  name: 'user',
+  initialState: { name: 'John' },
+  reducers: {
+    setName: (state, name: string) => ({ name }),
+  },
+});
+
+const counterSlice = createSlice({
+  name: 'counter',
+  initialState: { count: 0 },
+  reducers: {
+    increment: (state) => ({ count: state.count + 1 }),
+  },
+});
+
+const store = createStore(combineSlices(userSlice, counterSlice));
+
+// Accessing different slices
+store.getState().user.setName('Jane');
+store.getState().counter.increment();
+`}
+</CodeBlock>
+
+## Benefits of Slices
+
+- **Organization**: Co-locate state and actions by domain.
+- **Encapsulation**: Reducers only have access to their own slice of state, preventing accidental side effects in other parts of the store.
+- **Surgical Updates**: Slices work seamlessly with SoulState's surgical propagation engine. Only components subscribed to the specific changed properties will re-render.
+
+<Admonition type="info" title="Implementation Detail">
+  <p>Under the hood, <code>createSlice</code> converts your reducers into stable actions that are automatically injected into the state slice. This allows you to call <code>store.getState().sliceName.actionName()</code> directly.</p>
+</Admonition>

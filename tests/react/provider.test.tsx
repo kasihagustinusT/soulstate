@@ -1,17 +1,17 @@
-import { render, screen } from '@testing-library/react';
-import React from 'react';
-import { expect, test, vi } from 'vitest';
+import { render, screen } from "@testing-library/react";
+import React from "react";
+import { expect, test, vi } from "vitest";
 
-import { createStore } from '../../src/core/store';
-import { Provider, useStoreContext } from '../../src/react/provider';
-import { useStore } from '../../src/react/useStore';
+import { createStore } from "../../src/core/store";
+import { Provider, useStoreContext } from "../../src/react/provider";
+import { useStore } from "../../src/react/useStore";
 
 interface ContextState {
   value: string;
 }
 
-test('Provider should provide the correct store to context', () => {
-  const store = createStore<ContextState>({ value: 'context-value' });
+test("Provider should provide the correct store to context", () => {
+  const store = createStore<ContextState>({ value: "context-value" });
 
   function Component() {
     const storeFromContext = useStoreContext<ContextState>();
@@ -22,13 +22,13 @@ test('Provider should provide the correct store to context', () => {
   render(
     <Provider store={store}>
       <Component />
-    </Provider>
+    </Provider>,
   );
 
-  expect(screen.getByText('Value: context-value')).toBeInTheDocument();
+  expect(screen.getByText("Value: context-value")).toBeInTheDocument();
 });
 
-test('useStoreContext should throw if not within a Provider', () => {
+test("useStoreContext should throw if not within a Provider", () => {
   // Suppress console.error from React
   const err = console.error;
   console.error = vi.fn();
@@ -39,8 +39,8 @@ test('useStoreContext should throw if not within a Provider', () => {
   }
 
   expect(() => render(<Component />)).toThrow(
-    'useStoreContext must be used within a Provider'
+    "useStoreContext must be used within a Provider",
   );
 
-  console.error = err; 
+  console.error = err;
 });

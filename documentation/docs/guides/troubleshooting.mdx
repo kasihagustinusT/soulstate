@@ -1,0 +1,274 @@
+# Troubleshooting Guide
+
+Common issues and solutions when using SoulState.
+
+## Installation Issues
+
+### Module not found
+
+**Error:**
+```
+Module not found: Can't resolve 'soulstate'
+```
+
+**Solution:**
+```bash
+npm install soulstate
+# or
+yarn add soulstate
+# or
+pnpm add soulstate
+```
+
+### TypeScript errors
+
+**Error:**
+```
+Cannot find module 'soulstate' or its corresponding type declarations.
+```
+
+**Solution:**
+Ensure you have the latest version and TypeScript is configured correctly:
+```bash
+npm install soulstate@latest
+npm install -D typescript@latest
+```
+
+## Store Creation Issues
+
+### Store not reactive
+
+**Symptom:** State changes don't trigger re-renders.
+
+**Solution:** Ensure you're using the store hook correctly:
+```typescript
+// Wrong - accessing state directly
+const count = store.getState().count;
+
+// Correct - using useStore hook
+const count = useStore(store, (state) => state.count);
+```
+
+### Multiple stores conflict
+
+**Symptom:** Updates to one store affect another.
+
+**Solution:** Each store is independent. Ensure you're using the correct store instance:
+```typescript
+const storeA = createStore({ state: { a: 1 } });
+const storeB = createStore({ state: { b: 2 } });
+
+// Each store is separate
+useStore(storeA, (state) => state.a);
+useStore(storeB, (state) => state.b);
+```
+
+## Subscription Issues
+
+### Subscription not firing
+
+**Symptom:** Listener doesn't execute when state changes.
+
+**Solution:**
+1. Check the selector function:
+   ```typescript
+   // Wrong - selector returns same reference
+   store.subscribe(
+     (state) => state,  // Always returns same object
+     (state) => console.log(state)
+   );
+
+   // Correct - selector returns specific value
+   store.subscribe(
+     (state) => state.count,
+     (count) => console.log(count)
+   );
+   ```
+
+2. Verify the subscription is active:
+   ```typescript
+   const unsubscribe = store.subscribe(
+     (state) => state.count,
+     (count) => console.log(count)
+   );
+
+   // Subscription is active until unsubscribed
+   unsubscribe(); // Now it's inactive
+   ```
+
+### Memory leak from subscriptions
+
+**Symptom:** Memory usage grows over time.
+
+**Solution:** Always unsubscribe when component unmounts:
+```typescript
+useEffect(() => {
+  const unsubscribe = store.subscribe(
+    (state) => state.count,
+    (count) => console.log(count)
+  );
+  
+  return () => unsubscribe(); // Cleanup on unmount
+}, []);
+```
+
+## Computed Value Issues
+
+### Computed not updating
+
+**Symptom:** Computed value doesn't reflect changes.
+
+**Solution:** Ensure computed is accessing the correct state:
+```typescript
+// Wrong - computed not accessing state
+const double = store.computed(() => 2); // Static value
+
+// Correct - computed accessing state
+const double = store.computed((state) => state.count * 2);
+```
+
+### Computed re-computing too often
+
+**Symptom:** Computed function runs excessively.
+
+**Solution:** SoulState caches computed values. If it's re-computing, check:
+1. Dependencies are changing
+2. Selector is deterministic
+3. No external state is being accessed
+
+## Performance Issues
+
+### Slow updates with many subscribers
+
+**Symptom:** Updates are slow with 1000+ subscribers.
+
+**Solution:** Use surgical selectors:
+```typescript
+// Wrong - triggers all subscribers
+store.subscribe(
+  (state) => state,  // Returns entire state
+  (state) => { /* ... */ }
+);
+
+// Correct - triggers only relevant subscribers
+store.subscribe(
+  (state) => state.specificKey,  // Returns only what you need
+  (value) => { /* ... */ }
+);
+```
+
+### Unnecessary re-renders
+
+**Symptom:** Components re-render when they shouldn't.
+
+**Solution:** Use shallow equality for object selections:
+```typescript
+import { shallow } from 'soulstate/shallow';
+
+useStore(
+  store,
+  (state) => ({ a: state.a, b: state.b }),
+  shallow  // Prevents re-render if a and b haven't changed
+);
+```
+
+## React Integration Issues
+
+### useStore not working
+
+**Symptom:** `useStore` hook throws error.
+
+**Solution:** Ensure you're using the correct import:
+```typescript
+// Wrong
+import { useStore } from 'soulstate';
+
+// Correct
+import { useStore } from 'soulstate/react';
+```
+
+### Provider not found
+
+**Symptom:** Error about missing context provider.
+
+**Solution:** Wrap your app with the Provider:
+```typescript
+import { Provider } from 'soulstate/react';
+
+function App() {
+  return (
+    <Provider store={store}>
+      <MyComponent />
+    </Provider>
+  );
+}
+```
+
+## Transaction Issues
+
+### Transaction not batching
+
+**Symptom:** Updates happen immediately instead of batching.
+
+**Solution:** Use the transaction API:
+```typescript
+store.transaction((state) => {
+  state.count += 1;
+  state.name = 'updated';
+  // Both updates happen atomically
+});
+```
+
+### Transaction rollback not working
+
+**Symptom:** State changes persist after rollback.
+
+**Solution:** Ensure you're in a transaction:
+```typescript
+const transaction = store.beginTransaction();
+
+try {
+  store.setState({ count: 1 });
+  store.setState({ count: 2 });
+  transaction.rollback(); // Reverts to state before transaction
+} catch (error) {
+  transaction.rollback();
+}
+```
+
+## Debugging Tips
+
+### Enable instrumentation
+
+```typescript
+import { enableInstrumentation } from 'soulstate';
+
+enableInstrumentation();
+
+// Access metrics
+const metrics = store.getMetrics();
+console.log('Flush duration:', metrics.flushDuration);
+console.log('Selector runs:', metrics.selectorRuns);
+```
+
+### Check store state
+
+```typescript
+// Current state
+console.log(store.getState());
+
+// Previous state (during update)
+store.subscribe(
+  (state) => state.count,
+  (count, prevCount) => {
+    console.log('Updated from', prevCount, 'to', count);
+  }
+);
+```
+
+## Still Stuck?
+
+- [API Reference](/docs/api/core-store)
+- [Best Practices](/docs/guides/best-practices)
+- [GitHub Issues](https://github.com/kasihagustinusT/soulstate/issues)
+- [Discussions](https://github.com/kasihagustinusT/soulstate/discussions)

@@ -1,10 +1,11 @@
-// This file will contain the main exports for the library.
-
-export { createStore } from './core/store';
-export type { Store } from './core/store';
-export { useStore, useShallow } from './react/useStore';
-export { Provider, useStoreContext } from './react/provider';
-export { shallow } from './utils/shallow';
-
-// We will leave middleware and slice for a future step to keep this concise.
-// export { createSlice } from './core/slice';
+export * from "./core/store";
+export * from "./core/types";
+export * from "./core/scheduler";
+export * from "./core/selectors";
+export { useStore } from "./react/useStore";
+export { Provider, useStoreContext } from "./react/provider";
+export { batch } from "./utils/batch";
+export { objectIs } from "./utils/equality";
+export { shallow, useShallow } from "./utils/shallow";
+export { createSlice, combineSlices } from "./utils/slice";
+export * as middleware from "./middleware";

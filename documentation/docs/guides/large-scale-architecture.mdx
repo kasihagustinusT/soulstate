@@ -1,392 +1,96 @@
+# Large-Scale Architecture
+
+Building enterprise-grade applications with SoulState requires a shift from simple component-local state to a **Unified Reactive Graph**. This guide details the patterns needed to organize, scale, and observe massive SoulState runtimes.
+
+## 1. Modular Store Composition
+
+In a large-scale app, your state should be modular yet centralized. Use the **Slice Pattern** to divide your tree into domain-specific fragments.
+
+<CodeBlock language="typescript">
+{`// stores/rootStore.ts
+import { createStore, combineSlices } from 'soulstate';
+import { userSlice } from './userSlice';
+import { projectSlice } from './projectSlice';
+import { configSlice } from './configSlice';
+
+export const store = createStore(
+  combineSlices(userSlice, projectSlice, configSlice)
+);
+`}
+</CodeBlock>
+
+### Benefits
+- **Namespace Isolation**: Teams can own specific slices without merge conflicts.
+- **Unified Propagation**: Even though the store is composed of slices, it remains a single DAG, ensuring global consistency.
+
 ---
-title: Large-Scale State Architecture
-sidebar_label: Large-Scale Architecture
+
+## 2. The "Sub-Graph" Pattern
+
+For massive features (like a design canvas or a complex data grid), you can initialize **Feature-Scoped Stores**.
+
+<CodeBlock language="tsx">
+{`function DataGrid({ gridId }) {
+  // Localized systems-grade runtime for this specific grid instance
+  const [gridStore] = useState(() => createGridStore(gridId));
+  
+  return (
+    <Provider store={gridStore}>
+      <GridRenderer />
+    </Provider>
+  );
+}
+`}
+</CodeBlock>
+
+This isolates the propagation overhead of the feature from the rest of the application, while still providing systems-grade precision within the feature's scope.
+
 ---
 
-import CodeBlock from '@theme/CodeBlock';
-import Admonition from '@theme/Admonition';
+## 3. High-Density Computed Chains
 
-# Large-Scale State Architecture with SoulState
-
-Building large-scale applications requires careful state architecture. SoulState's performance-first design provides a solid foundation for complex, enterprise-grade applications when combined with proper architectural patterns.
-
-## Core Principles for Scale
-
-1. **Modularity**: Break state into small, independent stores
-2. **Clear Ownership**: Each domain owns its state and actions
-3. **Explicit Dependencies**: Clear communication between modules
-4. **Performance First**: Leverage SoulState's built-in optimizations
-5. **Testability**: Design stores and actions for isolated testing
-
-## Architectural Patterns
-
-### 1. Domain-Driven Store Organization
-
-Organize stores around business domains rather than UI components. This creates clear boundaries and makes state logic resilient to UI changes.
+Organize your derived state into a hierarchy of `computed` nodes. This effectively builds a "Virtual State Tree" that is lazily computed and surgically invalidated.
 
 <CodeBlock language="typescript">
-{`// Store structure by business domain
-// domains/products/productStore.ts
-const productStore = createStore({
-  // Product-specific state
-});
+{`// Layer 1: Raw data filters
+const activeItems = store.computed(s => s.items.filter(i => i.active));
 
-// domains/orders/orderStore.ts  
-const orderStore = createStore({
-  // Order-specific state
-});
+// Layer 2: Complex transformations on Layer 1
+const sortedItems = store.computed(() => activeItems.value.sort((a, b) => b.id - a.id));
 
-// domains/users/userStore.ts
-const userStore = createStore({
-  // User-specific state
-});`}
+// Layer 3: Final UI fragments
+const pagedItems = store.computed(() => sortedItems.value.slice(0, 50));
+`}
 </CodeBlock>
 
-### 2. Feature-Sliced Architecture
+By chaining computeds, you ensure that expensive logic (like sorting 10,000 items) only runs when its direct upstream dependencies change.
 
-Combine domain-driven stores with feature-based organization for optimal team scalability and code ownership.
+---
 
-<CodeBlock>
-{`// Recommended project structure
-src/
-├── domains/           # Business domain stores
-│   ├── products/      # Product domain logic
-│   ├── orders/        # Order domain logic  
-│   └── users/         # User domain logic
-├── features/          # Feature modules
-│   ├── product-catalog/    # Uses product store
-│   ├── order-management/   # Uses order store
-│   └── shared/             # Cross-cutting concerns
-├── app/               # App configuration and routing
-└── lib/               # Utilities and services`}
-</CodeBlock>
+## 4. Runtime Observability
 
-### 3. Global vs Local State Strategy
-
-**Use SoulState for global state:**
-- Data shared across multiple components
-- Server state and API responses
-- Complex business logic state
-- Persistent user preferences and settings
-
-**Use React local state for local state:**
-- Component-specific UI state
-- Form inputs and temporary values
-- Simple toggle states and visibility flags
-- Ephemeral component state
-
-<CodeBlock language="tsx">
-{`// Example: Mixed state strategy
-function UserProfile() {
-  // SoulState for shared data
-  const user = useStore(userStore, state => state.currentUser);
-  
-  // React state for local UI
-  const [isEditing, setIsEditing] = React.useState(false);
-  
-  return (
-    <div>
-      <h1>{user.name}</h1>
-      {isEditing && <EditForm />}
-    </div>
-  );
-}`}
-</CodeBlock>
-
-## Advanced Data Management Patterns
-
-### Data Normalization with Maps
-
-For applications with complex relational data, use Maps for optimal performance with large datasets.
+In production, use SoulState's **Instrumentation API** to monitor the health of your reactive graph.
 
 <CodeBlock language="typescript">
-{`// Normalized state structure
-const dataStore = createStore({
-  // Use Maps for O(1) lookups and updates
-  users: new Map(),       // userId -> User
-  products: new Map(),    // productId -> Product
-  orders: new Map(),      // orderId -> Order
-  
-  // Lookup indices for relationships
-  userOrders: new Map(),  // userId -> orderId[]
-});
-
-// Actions work with normalized data
-const dataActions = {
-  updateUser: (userId, updates) => {
-    dataStore.set(state => {
-      const newUsers = new Map(state.users);
-      newUsers.set(userId, { ...newUsers.get(userId), ...updates });
-      return { users: newUsers };
+{`store.enableInstrumentation({
+  onFlush: (duration, keys) => {
+    // Send metrics to your internal telemetry (Grafana, Datadog, etc.)
+    telemetry.histogram('soulstate.flush_duration', duration, { 
+      impact: keys.size > 10 ? 'high' : 'low' 
     });
   }
-};`}
-</CodeBlock>
-
-### Derived State with Selectors
-
-Create reusable selectors for complex data transformations and computed values.
-
-<CodeBlock language="typescript">
-{`// Selector patterns for derived state
-const userSelectors = {
-  // Filter and transform data
-  getActiveUsers: (state) => 
-    Array.from(state.users.values()).filter(user => user.isActive),
-  
-  // Compute statistics
-  getUserStats: (state) => {
-    const users = Array.from(state.users.values());
-    return {
-      total: users.length,
-      active: users.filter(u => u.isActive).length,
-      admins: users.filter(u => u.role === 'admin').length
-    };
-  },
-  
-  // Find specific entities
-  getUserById: (state, userId) => state.users.get(userId)
-};
-
-// Usage in components
-const activeUsers = useStore(userStore, userSelectors.getActiveUsers);`}
-</CodeBlock>
-
-## Cross-Store Communication Patterns
-
-### Coordinated Actions
-
-Coordinate complex operations that span multiple domains through dedicated action coordinators.
-
-<CodeBlock language="typescript">
-{`// Action coordination service
-const orderCoordinator = {
-  createOrder: async (productIds, userData) => {
-    // 1. Validate products exist
-    await productActions.validateProducts(productIds);
-    
-    // 2. Create order record
-    const order = await orderActions.createOrder({
-      products: productIds,
-      user: userData
-    });
-    
-    // 3. Update inventory
-    await productActions.updateInventory(productIds);
-    
-    // 4. Notify user
-    notificationActions.addNotification({
-      type: 'success',
-      message: 'Order created successfully'
-    });
-    
-    return order;
-  }
-};`}
-</CodeBlock>
-
-### Reactive Store Subscriptions
-
-Use store subscriptions for reactive updates across domain boundaries.
-
-<CodeBlock language="typescript">
-{`// Cross-store reactivity
-const setupStoreReactivity = () => {
-  // Subscribe to auth changes to load user profile
-  const unsubscribe = authStore.subscribe(
-    state => state.currentUser,
-    (user, prevUser) => {
-      if (user && !prevUser) {
-        // Automatically load profile when user logs in
-        userActions.loadUserProfile(user.id);
-      }
-    }
-  );
-  
-  return unsubscribe;
-};
-
-// Initialize in app setup
-// useEffect(() => {
-//   const unsubscribe = setupStoreReactivity();
-//   return unsubscribe;
-// }, []);`}
-</CodeBlock>
-
-## Performance Optimization at Scale
-
-### Selective Subscription Strategy
-
-Optimize list rendering with row-level components that subscribe only to their specific data.
-
-<CodeBlock language="tsx">
-{`// Optimized list pattern
-function ProductList() {
-  // Subscribe only to product IDs, not the entire products map
-  const productIds = useStore(
-    productStore,
-    state => Array.from(state.products.keys())
-  );
-
-  return (
-    <div>
-      {productIds.map(id => (
-        <ProductListItem key={id} productId={id} />
-      ))}
-    </div>
-  );
-}
-
-// Each item subscribes only to its own data
-function ProductListItem({ productId }) {
-  const product = useStore(
-    productStore,
-    state => state.products.get(productId)
-  );
-
-  return <div>{product?.name}</div>;
-}`}
-</CodeBlock>
-
-### Memoized Selectors for Expensive Computations
-
-Memoize selectors that perform expensive operations to avoid redundant calculations.
-
-<CodeBlock language="typescript">
-{`// Memoization utility
-function memoize(fn) {
-  const cache = new Map();
-  return (...args) => {
-    const key = JSON.stringify(args);
-    if (cache.has(key)) return cache.get(key);
-    const result = fn(...args);
-    cache.set(key, result);
-    return result;
-  };
-}
-
-// Memoized selectors
-const productSelectors = {
-  getExpensiveReport: memoize((state, filters) => {
-    // Expensive filtering and sorting
-    return complexDataProcessing(state.products, filters);
-  })
-};`}
-</CodeBlock>
-
-## Server-Side Rendering Strategy
-
-### Store Hydration Pattern
-
-Hydrate client-side stores with server data for seamless SSR integration.
-
-<CodeBlock language="tsx">
-{`// Store hydration component
-function StoreHydrator({ initialData, children }) {
-  React.useEffect(() => {
-    // Hydrate stores with server-provided data
-    if (initialData.user) {
-      userStore.set({ currentUser: initialData.user });
-    }
-    if (initialData.products) {
-      productStore.set({ products: new Map(initialData.products) });
-    }
-  }, [initialData]);
-
-  return <>{children}</>;
-}
-
-// Usage in app entry point
-function App({ serverData }) {
-  return (
-    <StoreHydrator initialData={serverData}>
-      <ApplicationRouter />
-    </StoreHydrator>
-  );
-}`}
-</CodeBlock>
-
-## Store Composition and Factory Patterns
-
-### Composed Stores for Complex Features
-
-Create composed stores that coordinate multiple domains for specific features.
-
-<CodeBlock language="typescript">
-{`// Composed store for dashboard feature
-const dashboardStore = createStore({
-  // Dashboard-specific state
-  isLoading: false,
-  lastUpdated: null
 });
-
-const dashboardActions = {
-  loadDashboardData: async () => {
-    dashboardStore.set({ isLoading: true });
-    
-    // Load data from multiple domains
-    await Promise.all([
-      userActions.fetchUsers(),
-      productActions.fetchProducts(),
-      orderActions.fetchRecentOrders()
-    ]);
-    
-    dashboardStore.set({ 
-      isLoading: false,
-      lastUpdated: new Date()
-    });
-  }
-};`}
+`}
 </CodeBlock>
 
-### Store Factory Pattern
+---
 
-Use factory functions for creating feature-specific stores with dependencies.
+## 5. Enterprise Scaling Strategies
 
-<CodeBlock language="typescript">
-{`// Store factory pattern
-const createFeatureStore = (dependencies) => {
-  const store = createStore({
-    // Initial state
-  });
+- **Key-Value Normalization**: Store large collections as Maps or Record objects (`{ [id]: data }`). This allows components to subscribe to `s => s.entities[id]`, maximizing sparse update efficiency.
+- **Transactional Ingestion**: When receiving large payloads from WebSockets or APIs, use `beginTransaction()` to prevent re-rendering the UI for every incoming packet.
+- **Reference Stability**: Ensure that your functional updaters and reducers maintain reference equality for unchanged data branches to minimize re-render checks.
 
-  const actions = {
-    // Actions that use dependencies
-    someAction: () => {
-      const otherState = dependencies.otherStore.get();
-      // Use other store's state
-    }
-  };
-
-  return { store, actions };
-};
-
-// Create feature store with dependencies
-const { store, actions } = createFeatureStore({
-  userStore,
-  productStore
-});`}
-</CodeBlock>
-
-<Admonition type="success" title="Large-Scale Benefits">
-<ul>
-  <li>✅ **Modular Architecture**: Scales with team size and application complexity</li>
-  <li>✅ **Performance Optimized**: Built-in O(1) subscriptions and microtask batching</li>
-  <li>✅ **Type-Safe**: Full TypeScript support for large codebases</li>
-  <li>✅ **Testable**: Isolated stores and actions enable comprehensive testing</li>
-  <li>✅ **Flexible Communication**: Multiple patterns for cross-store interaction</li>
-  <li>✅ **Memory Efficient**: Structural sharing minimizes object creation</li>
-</ul>
-</Admonition>
-
-<Admonition type="tip" title="Pro Tips for Scale">
-<ul>
-  <li>**Start with domains**: Begin with domain-driven stores from day one</li>
-  <li>**Use Maps for performance**: Prefer Maps over arrays for large, frequently updated datasets</li>
-  <li>**Implement surgical subscriptions**: Use row-level components for large lists</li>
-  <li>**Create reusable selectors**: Build selector libraries for complex data transformations</li>
-  <li>**Establish clear boundaries**: Define explicit communication patterns between domains</li>
-  <li>**Monitor performance**: Use React DevTools to identify unnecessary re-renders</li>
-  <li>**Plan for testing**: Design stores and actions with testability in mind</li>
-</ul>
+<Admonition type="success" title="Systems-Grade Maturity">
+  <p>Scaling SoulState to enterprise levels is a matter of leveraging its <strong>Directed Acyclic Graph</strong>. By organizing your state into normalized slices and hierarchy of computeds, you create a runtime that stays performant regardless of total data volume.</p>
 </Admonition>

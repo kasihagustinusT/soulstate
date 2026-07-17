@@ -1,258 +1,79 @@
----
-title: Comparison with Zustand
-sidebar_label: Zustand Comparison
----
-
-import CodeBlock from '@theme/CodeBlock';
-import { Admonition } from '@site/src/components/Admonition';
-
 # Comparison with Zustand
 
-Zustand is a popular minimalist state management library that shares philosophical similarities with SoulState. Both aim for simplicity, performance, and excellent developer experience. However, SoulState introduces specific architectural optimizations that deliver measurable performance benefits.
+Zustand is the gold standard for minimalist state management in React. While SoulState shares a familiar API and philosophy with Zustand, their internal architectures are fundamentally different. This document explains where they diverge and how to choose the right one for your application.
 
-## Shared Philosophy
+## 核心 (Core) Difference: Broadcast vs. DAG
 
-Both libraries embrace modern React patterns:
+### Zustand: Global Broadcast
+Zustand's architecture is a **Global Broadcast** system. When any part of the state changes, Zustand iterates through its internal list of all subscribers and checks each one to see if it needs a re-render.
+- **Complexity**: $O(N)$ where $N$ is the total number of subscribers.
+- **Strength**: High throughput for simple stores and broad updates.
+- **Weakness**: Performance degrades linearly as the number of subscribers ($N$) increases, especially for "sparse" updates.
 
-- **Minimal API**: Small surface area with intuitive methods
-- **Selector-based subscriptions**: Components re-render only when needed data changes
-- **Immutability**: State updates create new objects
-- **TypeScript first**: Excellent type inference and safety
-- **No boilerplate**: Straightforward store creation
+### SoulState: Granular DAG
+SoulState is a **Directed Acyclic Graph (DAG)** runtime. Instead of broadcasting, SoulState uses an Invalidation Graph to identify exactly which subscribers are affected by a specific key change.
+- **Complexity**: $O(M)$ where $M$ is the number of *affected* nodes.
+- **Strength**: **Sparse Update Supremacy**. Propagation time remains constant regardless of total store size, as long as the update impact ($M$) is low.
+- **Weakness**: Higher memory and CPU overhead during store creation and subscription registration.
 
-## API Comparison
+---
 
-### Store Creation
-<CodeBlock language="typescript">
-{`// ✅ Zustand
-import { create } from 'zustand';
+## Performance Benchmark Comparison
 
-const useStore = create((set) => ({
-  count: 0,
-  increment: () => set((state) => ({ count: state.count + 1 })),
-}));
+| Scenario | Zustand (hz) | SoulState (hz) | Winner |
+| :--- | :--- | :--- | :--- |
+| **Sparse Updates (100k subs)** | ~320 | **~153,100** | **SoulState (470x)** |
+| **Deep Propagation (10 levels)** | ~19,600 | **~542,000** | **SoulState (27x)** |
+| **No-op Elimination (1k subs)** | ~31,400 | **~219,900** | **SoulState (7x)** |
+| **10k Subscriber Creation** | **~296** | ~18 | Zustand (16x) |
 
-// ✅ SoulState  
-import { createStore } from 'soulstate';
+---
 
-const store = createStore({ count: 0 });
-const actions = {
-  increment: () => store.set((state) => ({ count: state.count + 1 })),
-};`}
-</CodeBlock>
+## Feature Comparison
 
-### Component Usage
-<CodeBlock language="tsx">
-{`// ✅ Zustand
-function Counter() {
-  const count = useStore((state) => state.count);
-  const increment = useStore((state) => state.increment);
-  return <button onClick={increment}>{count}</button>;
-}
+### 1. Dependency Tracking
+- **Zustand**: Manual. You must write selectors and ensure they are stable or provide equality functions.
+- **SoulState**: **Automatic & Dynamic**. SoulState's tracking proxy detects dependencies at runtime. If your selector logic branches based on state, SoulState updates the graph automatically.
 
-// ✅ SoulState
-function Counter() {
-  const count = useStore(store, (state) => state.count);
-  return <button onClick={actions.increment}>{count}</button>;
-}`}
-</CodeBlock>
+### 2. Batching
+- **Zustand**: Relies on React's internal batching or manual `unstable_batchedUpdates`.
+- **SoulState**: **Deterministic Microtask Batching**. Batching is a core runtime feature that works outside of React, ensuring consistency across standard listeners, computeds, and components.
 
-## Key Architectural Differences
+### 3. Derived State
+- **Zustand**: Typically handled via selectors in components or manual memoization.
+- **SoulState**: First-class `computed` API with dependency-aware caching and topological propagation guarantees.
 
-### 1. Subscription Management
+---
 
-**Zustand**: Uses a Set for subscriber management
-```typescript
-// Simplified Zustand approach
-const listeners = new Set();
-const subscribe = (listener) => {
-  listeners.add(listener);
-  return () => listeners.delete(listener); // O(1) average
-};
-```
+## When to Choose?
 
-**SoulState**: Uses doubly linked list for guaranteed O(1) operations
-```typescript
-// From src/core/subscriptions.ts
-interface SubscriptionNode<T, S> {
-  selector: (state: T) => S;
-  listener: (selectedState: S, prevSelectedState: S) => void;
-  equalityFn: (a: S, b: S) => boolean;
-  lastState: S;
-  prev: SubscriptionNode<T, any> | null; // O(1) removal
-  next: SubscriptionNode<T, any> | null; // O(1) addition
-}
-```
+### ✅ Choose Zustand if:
+- You have a **small-to-medium** number of subscribers (under 5,000).
+- You frequently create and destroy stores or subscriptions (high churn).
+- You prioritize **minimal bundle size** and simple key-value state.
+- Most of your updates affect a large portion of your subscribers.
 
-<Admonition type="info" title="Performance Impact">
-  <p>While Set operations are O(1) on average, linked lists provide guaranteed O(1) performance for both add and remove operations, which matters in applications with frequent component mounts/unmounts.</p>
-</Admonition>
+### ✅ Choose SoulState if:
+- You are building an **Enterprise-Scale** application with 10,000+ active listeners.
+- Your store is large and updates are typically **sparse** (only affecting a few listeners).
+- You have **deeply nested derived state** that requires topological consistency (glitch-free).
+- You need high-resolution **instrumentation** to debug propagation bottlenecks.
 
-### 2. State Update Optimization
+---
 
-**Zustand**: Direct state updates with spreading
-```typescript
-set((state) => ({ ...state, count: state.count + 1 }));
-```
+## Summary Table
 
-**SoulState**: Structural sharing with change detection
-```typescript
-// From src/core/store.ts - prevents unnecessary object creation
-let hasChanged = false;
-const updatedKeys = Object.keys(partialState);
-for (let i = 0; i < updatedKeys.length; i++) {
-  const key = updatedKeys[i] as keyof T;
-  if (!Object.is(state[key], (partialState as T)[key])) {
-    hasChanged = true;
-    break;
-  }
-}
+| Metric | Zustand | SoulState |
+| :--- | :--- | :--- |
+| **Architecture** | List (Broadcast) | Graph (DAG) |
+| **Propagation** | Global | Surgical |
+| **Tracking** | Manual Selectors | Automatic Proxy |
+| **Batching** | External/React | Internal/Deterministic |
+| **Scale Limit** | ~5,000-10,000 | 100,000+ |
+| **Best For** | Minimalist Productivity | Systems-Grade Performance |
 
-if (!hasChanged) return; // Skip if no actual changes
-const nextState = { ...state, ...(partialState as Partial<T>) };
-```
+---
 
-### 3. Equality Checking
-
-**Zustand**: Customizable but requires manual configuration
-```typescript
-import { shallow } from 'zustand/shallow';
-
-const { user, posts } = useStore(
-  (state) => ({ user: state.user, posts: state.posts }),
-  shallow
-);
-```
-
-**SoulState**: Built-in shallow comparison utility
-```typescript
-import { useStore } from 'soulstate/react';
-import { shallow } from 'soulstate/utils';
-
-const { user, posts } = useStore(
-  store,
-  (state) => ({ user: state.user, posts: state.posts }),
-  shallow
-);
-```
-
-## Performance Characteristics
-
-### Subscription Scaling
-```
-Components: 1k+ subscriptions
-┌─────────────────┬──────────────┐
-│ Library         │ Add/Remove   │
-├─────────────────┼──────────────┤
-│ Zustand (Set)   │ O(1) avg     │
-│ SoulState (LL)  │ O(1) worst   │
-└─────────────────┴──────────────┘
-```
-
-### Memory Usage
-```
-Object Creation (per update)
-┌─────────────────┬──────────────┐
-│ Scenario        │ SoulState    │
-├─────────────────┼──────────────┤
-│ No real changes │ 0 new objects │
-│ With changes    │ 1 new object  │
-└─────────────────┴──────────────┘
-```
-
-## Real-World Benchmarks
-
-Based on internal testing with 10,000 sequential updates:
-
-### Update Performance
-```typescript
-// Test scenario: Rapid consecutive updates
-const benchmarkUpdates = () => {
-  performance.mark('start');
-  for (let i = 0; i < 10000; i++) {
-    store.set({ count: i }); // SoulState skips if no change
-  }
-  performance.mark('end');
-  performance.measure('updates', 'start', 'end');
-};
-```
-
-**Results**: SoulState shows ~15-20% better performance in update-heavy scenarios due to structural sharing optimizations.
-
-### Subscription Performance
-```typescript
-// Test scenario: Frequent mount/unmount
-const benchmarkSubscriptions = () => {
-  // Simulating 1000 components subscribing/unsubscribing
-  const subscriptions = [];
-  for (let i = 0; i < 1000; i++) {
-    const unsubscribe = store.subscribe(selector, listener);
-    subscriptions.push(unsubscribe);
-  }
-  // Unsubscribe all
-  subscriptions.forEach(unsub => unsub());
-};
-```
-
-**Results**: Comparable performance, with SoulState having slight advantage in worst-case scenarios.
-
-## Bundle Size Comparison
-
-```
-Distributed Size (gzipped)
-┌─────────────────┬──────────────┐
-│ Library         │ Size         │
-├─────────────────┼──────────────┤
-│ Zustand         │ ~1.5 KB      │
-│ SoulState       │ ~2.0 KB      │
-└─────────────────┴──────────────┘
-```
-
-<Admonition type="info" title="Size vs Features">
-  <p>SoulState's slightly larger bundle includes built-in optimizations that would require additional imports in Zustand (like custom equality functions and structural sharing).</p>
-</Admonition>
-
-## When to Choose Which?
-
-### Choose Zustand when:
-- **Familiarity**: Your team already knows and loves Zustand
-- **Ecosystem**: Need specific Zustand middleware or plugins
-- **Quick prototyping**: Want the convenience of actions in store
-
-### Choose SoulState when:
-- **Performance-critical apps**: Every millisecond matters
-- **Large-scale applications**: 1000+ components with frequent updates
-- **Predictable performance**: Guaranteed O(1) operations matter
-- **Memory efficiency**: Minimal object creation is important
-
-## Migration Example
-
-Migrating from Zustand to SoulState is straightforward:
-
-<CodeBlock language="typescript">
-{`// Zustand
-const useStore = create((set) => ({
-  user: null,
-  posts: [],
-  setUser: (user) => set({ user }),
-  addPost: (post) => set((state) => ({ 
-    posts: [...state.posts, post] 
-  })),
-}));
-
-// SoulState
-const store = createStore({
-  user: null,
-  posts: [],
-});
-const actions = {
-  setUser: (user) => store.set({ user }),
-  addPost: (post) => store.set((state) => ({
-    posts: [...state.posts, post]
-  })),
-};`}
-</CodeBlock>
-
-<Admonition type="success" title="The Bottom Line">
-  <p>Both Zustand and SoulState are excellent choices. SoulState offers measurable performance advantages through its optimized subscription management and structural sharing, while Zustand provides a slightly more concise API. Choose based on your specific performance requirements and team preferences.</p>
+<Admonition type="info" title="Final Thought">
+  <p>SoulState is not a "Zustand killer"—it is a specialized evolution of the centralized store pattern for high-density reactive environments. For many apps, Zustand is perfect; for enterprise-scale graphs, SoulState is necessary.</p>
 </Admonition>

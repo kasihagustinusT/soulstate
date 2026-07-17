@@ -1,199 +1,68 @@
-```mdx
----
-title: Middleware API
-sidebar_label: Middleware
----
-
-import CodeBlock from '@theme/CodeBlock';
-import { Admonition } from '@site/src/components/Admonition';
-
 # API: Middleware
 
-Middleware in SoulState allows you to intercept and enhance the store's `set` method using a functional composition pattern. Middleware wraps the `set` function to add cross-cutting concerns like logging, persistence, or debugging.
+SoulState supports a powerful middleware pattern that allows you to extend the store's behavior. Middleware in SoulState are higher-order functions that wrap the store creator.
 
-## How Middleware Works
+## `devtools`
 
-In SoulState, middleware follows a **curried function pattern** that wraps the store's `set` method. Each middleware receives configuration and returns a function that enhances the state creation process.
+Connects your SoulState store to the **Redux DevTools Extension**. This allows you to inspect state changes, perform time-travel debugging, and view propagation history.
 
-### Basic Pattern
+### Usage
 
 <CodeBlock language="typescript">
-{`import { createStore } from 'soulstate';
-import { logger } from 'soulstate/core';
+{`import { createStore, middleware } from 'soulstate';
 
-// Middleware is applied by wrapping the store creation
+const { devtools } = middleware;
+
 const store = createStore(
-  logger((set, get) => ({
+  devtools({ name: 'CounterStore' })((set) => ({
     count: 0,
-    increment: () => set(state => ({ count: state.count + 1 }))
+    inc: () => set(s => ({ count: s.count + 1 }))
   }))
 );
 `}
 </CodeBlock>
 
-## Built-in Middleware
+---
 
-### `logger` Middleware
+## `persist`
 
-Adds console logging for all state updates.
+Automatically persists and rehydrates your store state using `localStorage` or any custom storage engine.
 
-<CodeBlock language="typescript">
-{`import { createStore } from 'soulstate';
-import { logger } from 'soulstate/core';
-
-const store = createStore(
-  logger((set, get) => ({
-    count: 0,
-    increment: () => set(state => ({ count: state.count + 1 }))
-  }))
-);
-
-store.set({ count: 1 });
-// Console output:
-// SoulState Update
-// Previous State: { count: 0 }
-// Next State: { count: 1 }
-`}
-</CodeBlock>
-
-### `reduxDevtools` Middleware
-
-Connects to Redux DevTools Extension.
+### Usage
 
 <CodeBlock language="typescript">
-{`import { createStore } from 'soulstate';
-import { reduxDevtools } from 'soulstate/core';
+{`import { createStore, middleware } from 'soulstate';
+
+const { persist } = middleware;
 
 const store = createStore(
-  reduxDevtools('MyApp')((set, get) => ({
-    todos: [],
-    addTodo: (text) => set(state => ({
-      todos: [...state.todos, { id: Date.now(), text }]
-    }))
+  persist({ 
+    key: 'app-settings',
+    storage: localStorage // Defaults to localStorage if window is defined
+  })((set) => ({
+    theme: 'dark',
+    setTheme: (theme) => set({ theme })
   }))
 );
 `}
 </CodeBlock>
 
-### `persistMiddleware`
+### Options
 
-Persists state to localStorage.
+- **`key`**: (Required) Unique key for the storage entry.
+- **`storage`**: (Optional) Storage engine (must implement `getItem` and `setItem`). Defaults to `localStorage`.
+- **`serialize`**: (Optional) Function to convert state to string.
+- **`deserialize`**: (Optional) Function to convert string back to state.
 
-<CodeBlock language="typescript">
-{`import { createStore } from 'soulstate';
-import { persistMiddleware } from 'soulstate/core';
+---
 
-const store = createStore(
-  persistMiddleware({
-    key: 'my-app-state',
-    storage: localStorage
-  })((set, get) => ({
-    user: null,
-    theme: 'light',
-    setUser: (user) => set({ user })
-  }))
-);
-`}
-</CodeBlock>
+## Middleware Lifecycle
 
-## Creating Custom Middleware
+Middleware are applied during the `createStore` phase. They intercept the `set` function, allowing them to:
+1.  **Log** state transitions (DevTools).
+2.  **Persist** state to external storage (Persist).
+3.  **Transform** state updates before they reach the core runtime.
 
-Custom middleware follows the same curried pattern.
-
-### Middleware Signature
-
-<CodeBlock language="typescript">
-{`type Middleware = <T>(
-  config?: any
-) => (
-  set: (partial: T | ((state: T) => T)) => void,
-  get: () => T,
-  api: any
-) => (partial: T | ((state: T) => T)) => void;
-`}
-</CodeBlock>
-
-### Simple Custom Middleware
-
-<CodeBlock language="typescript">
-{`const analyticsMiddleware = (eventName: string) => (set, get, api) => (partial) => {
-  const prevState = get();
-  const result = set(partial);
-  const nextState = get();
-  
-  console.log(`[Analytics] ${eventName}:`, { prevState, nextState });
-  return result;
-};
-
-const store = createStore(
-  analyticsMiddleware('counter-update')((set, get) => ({
-    count: 0,
-    increment: () => set(state => ({ count: state.count + 1 }))
-  }))
-);
-`}
-</CodeBlock>
-
-### Advanced Custom Middleware
-
-<CodeBlock language="typescript">
-{`const createUndoMiddleware = (maxHistory = 50) => (set, get, api) => {
-  const history = [get()];
-  let index = 0;
-  
-  const enhancedSet = (partial) => {
-    const result = set(partial);
-    history.push(get());
-    index = history.length - 1;
-    
-    if (history.length > maxHistory) history.shift();
-    return result;
-  };
-  
-  api.undo = () => index > 0 && set(history[--index]);
-  api.redo = () => index < history.length - 1 && set(history[++index]);
-  
-  return enhancedSet;
-};
-
-const store = createStore(
-  createUndoMiddleware()((set, get, api) => ({
-    count: 0,
-    increment: () => set(state => ({ count: state.count + 1 })),
-    undo: api.undo,
-    redo: api.redo
-  }))
-);
-`}
-</CodeBlock>
-
-## Middleware Composition
-
-Chain multiple middleware by nesting them.
-
-<CodeBlock language="typescript">
-{`import { logger, reduxDevtools, persistMiddleware } from 'soulstate/core';
-
-const store = createStore(
-  logger(
-    reduxDevtools('App')(
-      persistMiddleware({ key: 'app' })(
-        (set, get) => ({
-          user: null,
-          setUser: (user) => set({ user })
-        })
-      )
-    )
-  )
-);
-`}
-</CodeBlock>
-
-<Admonition type="warning" title="Important Pattern">
-  <p>SoulState middleware uses a <strong>curried function pattern</strong>, not a store enhancement pattern. Middleware wraps the store creation process, not existing stores.</p>
+<Admonition type="info" title="Note on Batching">
+  <p>SoulState's middleware system respects the core runtime's microtask batching. Middleware like <code>persist</code> will only be triggered after the internal state has been updated, ensuring that only settled state is persisted.</p>
 </Admonition>
-
-<Admonition type="info" title="Implementation Detail">
-  <p>All built-in middleware follow the same pattern: <code>(config) => (set, get, api) => (partial) => { ... }</code></p>
-</Admonition>
-```

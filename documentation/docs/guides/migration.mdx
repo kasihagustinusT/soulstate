@@ -1,0 +1,269 @@
+# Migration Guide
+
+This guide helps you migrate from other state management libraries to SoulState.
+
+## From Zustand
+
+SoulState provides a Zustand-compatible API. Most code requires minimal changes.
+
+### Basic Store
+
+**Zustand:**
+```typescript
+import { create } from 'zustand';
+
+const useStore = create((set) => ({
+  count: 0,
+  increment: () => set((state) => ({ count: state.count + 1 })),
+}));
+```
+
+**SoulState:**
+```typescript
+import { createStore } from 'soulstate';
+
+const store = createStore({
+  state: { count: 0 },
+  actions: {
+    increment: (state) => ({ count: state.count + 1 }),
+  },
+});
+```
+
+### Subscriptions
+
+**Zustand:**
+```typescript
+const unsubscribe = useStore.subscribe(
+  (state) => state.count,
+  (count) => console.log('Count:', count)
+);
+```
+
+**SoulState:**
+```typescript
+const unsubscribe = store.subscribe(
+  (state) => state.count,
+  (count) => console.log('Count:', count)
+);
+```
+
+### Computed Values
+
+**Zustand:** Uses external libraries or manual implementation.
+
+**SoulState:** Built-in computed support:
+```typescript
+const doubleCount = store.computed((state) => state.count * 2);
+```
+
+### Key Differences
+
+| Feature | Zustand | SoulState |
+|---------|---------|-----------|
+| Granular Updates | Manual selector optimization | Automatic fine-grained reactivity |
+| Computed Values | External library | Built-in |
+| Glitch-Free | Not guaranteed | Guaranteed |
+| Batch Updates | Manual batching | Automatic microtask batching |
+
+## From Redux/Redux Toolkit
+
+### Store Setup
+
+**Redux Toolkit:**
+```typescript
+import { configureStore, createSlice } from '@reduxjs/toolkit';
+
+const counterSlice = createSlice({
+  name: 'counter',
+  initialState: { count: 0 },
+  reducers: {
+    increment: (state) => { state.count += 1; },
+  },
+});
+
+const store = configureStore({
+  reducer: { counter: counterSlice.reducer },
+});
+```
+
+**SoulState:**
+```typescript
+import { createStore } from 'soulstate';
+
+const store = createStore({
+  state: { count: 0 },
+  actions: {
+    increment: (state) => ({ count: state.count + 1 }),
+  },
+});
+```
+
+### Dispatching Actions
+
+**Redux:**
+```typescript
+store.dispatch(counterSlice.actions.increment());
+```
+
+**SoulState:**
+```typescript
+store.getState().increment();
+// or
+store.setState((state) => ({ count: state.count + 1 }));
+```
+
+### Selectors
+
+**Redux:**
+```typescript
+const count = useSelector((state) => state.counter.count);
+```
+
+**SoulState:**
+```typescript
+const count = useStore(store, (state) => state.count);
+```
+
+### Key Differences
+
+| Feature | Redux | SoulState |
+|---------|-------|-----------|
+| Boilerplate | Reducers, actions, dispatch | Minimal |
+| Immutability | Manual or Immer | Structural sharing |
+| Performance | O(N) global updates | O(M) surgical updates |
+| DevTools | Redux DevTools | Redux DevTools compatible |
+
+## From Jotai
+
+### Atom Creation
+
+**Jotai:**
+```typescript
+import { atom, useAtom } from 'jotai';
+
+const countAtom = atom(0);
+const doubleAtom = atom((get) => get(countAtom) * 2);
+```
+
+**SoulState:**
+```typescript
+import { createStore } from 'soulstate';
+
+const store = createStore({
+  state: { count: 0 },
+});
+
+const doubleCount = store.computed((state) => state.count * 2);
+```
+
+### Usage in React
+
+**Jotai:**
+```typescript
+function Counter() {
+  const [count, setCount] = useAtom(countAtom);
+  return <button onClick={() => setCount(c => c + 1)}>{count}</button>;
+}
+```
+
+**SoulState:**
+```typescript
+function Counter() {
+  const count = useStore(store, (state) => state.count);
+  return (
+    <button onClick={() => store.getState().increment()}>
+      {count}
+    </button>
+  );
+}
+```
+
+### Key Differences
+
+| Feature | Jotai | SoulState |
+|---------|-------|-----------|
+| State Organization | Decentralized atoms | Centralized store |
+| Dependencies | Automatic via reads | Automatic via tracking |
+| Performance | Good at small scale | Excellent at large scale |
+| Mental Model | Atomic | Graph-based |
+
+## From Valtio
+
+### Proxy Creation
+
+**Valtio:**
+```typescript
+import { proxy, useSnapshot } from 'valtio';
+
+const state = proxy({ count: 0 });
+
+function Counter() {
+  const snap = useSnapshot(state);
+  return <button onClick={() => { state.count += 1; }}>{snap.count}</button>;
+}
+```
+
+**SoulState:**
+```typescript
+import { createStore } from 'soulstate';
+
+const store = createStore({
+  state: { count: 0 },
+  actions: {
+    increment: (state) => ({ count: state.count + 1 }),
+  },
+});
+
+function Counter() {
+  const count = useStore(store, (state) => state.count);
+  return (
+    <button onClick={() => store.getState().increment()}>
+      {count}
+    </button>
+  );
+}
+```
+
+### Key Differences
+
+| Feature | Valtio | SoulState |
+|---------|--------|-----------|
+| Mutation Model | Direct mutation | Immutable updates |
+| Tracking | Proxy-based | Proxy-based |
+| Performance | Good | Excellent |
+| TypeScript | Limited inference | Full type inference |
+
+## General Migration Checklist
+
+1. **Install SoulState:**
+   ```bash
+   npm install soulstate
+   ```
+
+2. **Replace store creation:**
+   - Remove old store setup
+   - Create new SoulState store with `createStore`
+
+3. **Update state access:**
+   - Replace direct state access with `store.getState()`
+   - Update subscriptions to use SoulState API
+
+4. **Add computed values:**
+   - Convert derived state to `store.computed()`
+   - Replace manual memoization
+
+5. **Update React components:**
+   - Replace `useSelector` with `useStore`
+   - Update dispatch calls to use store actions
+
+6. **Test thoroughly:**
+   - Verify all state updates work
+   - Check subscription cleanup
+   - Validate computed value caching
+
+## Need Help?
+
+- [API Reference](/docs/api/core-store)
+- [Best Practices](/docs/guides/best-practices)
+- [GitHub Issues](https://github.com/kasihagustinusT/soulstate/issues)

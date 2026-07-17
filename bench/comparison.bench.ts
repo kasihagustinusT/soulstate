@@ -1,243 +1,171 @@
-import { bench, describe } from "vitest";
-import { createStore } from "../src/core/store";
+import { bench, describe } from 'vitest';
+import { createStore as createSoulState } from '../src/core/store';
+import { create as createZustand } from 'zustand';
+import { atom as jotaiAtom, createStore as createJotaiStore } from 'jotai';
+import { proxy, subscribe as valtioSubscribe } from 'valtio';
+import { configureStore, createSlice } from '@reduxjs/toolkit';
+import { observable, autorun, runInAction } from 'mobx';
+import { atom as nanoAtom } from 'nanostores';
+import { signal as preactSignal } from '@preact/signals';
+import { createSignal as solidSignal, createRoot as solidRoot, createEffect as solidEffect } from 'solid-js';
 
-/* =======================================================
-   LIGHTWEIGHT MOCKS FOR OTHER STATE MANAGEMENT LIBRARIES
-   ======================================================= */
+describe('Sparse Update Performance (100,000 subscribers, 100 keys)', () => {
+  const keysCount = 100;
+  const subscriberCount = 100000;
+  const initialState = Object.fromEntries(Array.from({ length: keysCount }, (_, i) => [`key${i}`, 0]));
 
-// Zustand Mock — already included
-const createZustandMock = () => {
-  let state = 0;
-  const listeners = new Set<() => void>();
-  return {
-    getState: () => state,
-    setState: (updater: (s: number) => number) => {
-      state = updater(state);
-      listeners.forEach((l) => l());
-    },
-    subscribe: (listener: () => void) => {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-  };
-};
+  // SoulState
+  const soulStore = createSoulState(initialState);
+  for (let i = 0; i < subscriberCount; i++) {
+    const key = `key${i % keysCount}`;
+    soulStore.subscribe(s => s[key], () => {});
+  }
 
-// Redux-like mock
-const createReduxMock = () => {
-  let state = { count: 0 };
-  const listeners = new Set<() => void>();
-  return {
-    getState: () => state,
-    dispatch: (partial: any) => {
-      state = { ...state, ...partial };
-      listeners.forEach((l) => l());
-    },
-    subscribe: (l: () => void) => {
-      listeners.add(l);
-      return () => listeners.delete(l);
-    },
-  };
-};
+  // Zustand
+  const zustandStore = createZustand(() => initialState);
+  for (let i = 0; i < subscriberCount; i++) {
+    const key = `key${i % keysCount}`;
+    zustandStore.subscribe((state: any) => state[key]);
+  }
 
-// MobX-like reactive store
-const createMobxMock = () => {
-  let state = { count: 0 };
-  const listeners = new Set<() => void>();
-  return {
-    get: () => state,
-    set: (partial: any) => {
-      Object.assign(state, partial);
-      listeners.forEach((l) => l());
-    },
-    subscribe: (fn: () => void) => {
-      listeners.add(fn);
-      return () => listeners.delete(fn);
-    },
-  };
-};
+  // Jotai
+  const jotaiStore = createJotaiStore();
+  const jotaiAtoms = Array.from({ length: keysCount }, (_, i) => jotaiAtom(0));
+  for (let i = 0; i < subscriberCount; i++) {
+    const a = jotaiAtoms[i % keysCount];
+    jotaiStore.sub(a, () => {});
+  }
 
-// Valtio-like proxy store
-const createValtioMock = () => {
-  const state = { count: 0 };
-  const listeners = new Set<() => void>();
-  return {
-    snapshot: state,
-    mutate: (fn: (s: any) => void) => {
-      fn(state);
-      listeners.forEach((l) => l());
-    },
-    subscribe: (l: () => void) => {
-      listeners.add(l);
-      return () => listeners.delete(l);
-    },
-  };
-};
+  // Valtio
+  const valtioProxy = proxy(initialState);
+  for (let i = 0; i < subscriberCount; i++) {
+    const key = `key${i % keysCount}`;
+    valtioSubscribe(valtioProxy, () => {
+        const val = (valtioProxy as any)[key];
+    });
+  }
 
-// Jotai-like atomic mock
-const createJotaiMock = () => {
-  let value = 0;
-  const listeners = new Set<() => void>();
-  return {
-    get: () => value,
-    set: (v: number) => {
-      value = v;
-      listeners.forEach((l) => l());
-    },
-    subscribe: (l: () => void) => {
-      listeners.add(l);
-      return () => listeners.delete(l);
-    },
-  };
-};
+  // Redux Toolkit
+  const rtkSlice = createSlice({
+    name: 'bench',
+    initialState,
+    reducers: {
+      update: (state, action) => {
+        const { key, value } = action.payload;
+        (state as any)[key] = value;
+      }
+    }
+  });
+  const rtkStore = configureStore({ reducer: rtkSlice.reducer });
+  for (let i = 0; i < subscriberCount; i++) {
+    const key = `key${i % keysCount}`;
+    rtkStore.subscribe(() => {
+        const val = (rtkStore.getState() as any)[key];
+    });
+  }
 
-// Nano Stores mock
-const createNanoMock = () => {
-  let value = 0;
-  const listeners = new Set<() => void>();
-  return {
-    get: () => value,
-    set: (v: number) => {
-      value = v;
-      listeners.forEach((l) => l());
-    },
-    subscribe: (l: () => void) => {
-      listeners.add(l);
-      return () => listeners.delete(l);
-    },
-  };
-};
+  // MobX
+  const mobxObservable = observable(initialState);
+  for (let i = 0; i < subscriberCount; i++) {
+    const key = `key${i % keysCount}`;
+    autorun(() => {
+      const val = (mobxObservable as any)[key];
+    });
+  }
 
-// Signals (Preact/Solid) mock
-const createSignalMock = () => {
-  let value = 0;
-  const listeners = new Set<() => void>();
-  return {
-    get: () => value,
-    set: (v: number) => {
-      value = v;
-      listeners.forEach((l) => l());
-    },
-    subscribe: (l: () => void) => {
-      listeners.add(l);
-      return () => listeners.delete(l);
-    },
-  };
-};
+  // Nanostores
+  const nanoAtoms = Array.from({ length: keysCount }, (_, i) => nanoAtom(0));
+  for (let i = 0; i < subscriberCount; i++) {
+    const a = nanoAtoms[i % keysCount];
+    a.subscribe(() => {});
+  }
 
-/* =======================================================
-   BENCH: 100k Sequential Updates
-   ======================================================= */
-describe("100k Sequential Updates", () => {
-  bench("SoulState", () => {
-    const store = createStore({ count: 0 });
-    for (let i = 0; i < 100000; i++) store.set({ count: i });
+  // Preact Signals
+  const preactSignals = Array.from({ length: keysCount }, (_, i) => preactSignal(0));
+  for (let i = 0; i < subscriberCount; i++) {
+    const s = preactSignals[i % keysCount];
+    autorun(() => {
+      const val = s.value;
+    });
+  }
+
+  // Solid Signals
+  const solidSignals: any[] = [];
+  solidRoot(() => {
+    for (let i = 0; i < keysCount; i++) {
+      const [get, set] = solidSignal(0);
+      solidSignals.push({ get, set });
+    }
+    for (let i = 0; i < subscriberCount; i++) {
+      const s = solidSignals[i % keysCount];
+      solidEffect(() => {
+        const val = s.get();
+      });
+    }
   });
 
-  bench("Zustand (Mock)", () => {
-    const store = createZustandMock();
-    for (let i = 0; i < 100000; i++) store.setState(() => i);
+  bench('SoulState (Surgical)', async () => {
+    soulStore.setState({ key0: Math.random() });
+    await Promise.resolve();
   });
 
-  bench("Redux (Mock)", () => {
-    const store = createReduxMock();
-    for (let i = 0; i < 100000; i++) store.dispatch({ count: i });
+  bench('Zustand (Global)', () => {
+    zustandStore.setState({ key0: Math.random() });
   });
 
-  bench("MobX (Mock)", () => {
-    const store = createMobxMock();
-    for (let i = 0; i < 100000; i++) store.set({ count: i });
+  bench('Jotai (Atomic)', () => {
+    jotaiStore.set(jotaiAtoms[0], Math.random());
   });
 
-  bench("Valtio (Mock)", () => {
-    const store = createValtioMock();
-    for (let i = 0; i < 100000; i++) store.mutate((s) => (s.count = i));
+  bench('Valtio (Proxy)', () => {
+    valtioProxy.key0 = Math.random();
   });
 
-  bench("Jotai (Mock)", () => {
-    const store = createJotaiMock();
-    for (let i = 0; i < 100000; i++) store.set(i);
+  bench('Redux Toolkit (RTK)', () => {
+    rtkStore.dispatch(rtkSlice.actions.update({ key: 'key0', value: Math.random() }));
   });
 
-  bench("Nano Stores (Mock)", () => {
-    const store = createNanoMock();
-    for (let i = 0; i < 100000; i++) store.set(i);
+  bench('MobX (Reactive)', () => {
+    runInAction(() => {
+      (mobxObservable as any).key0 = Math.random();
+    });
   });
 
-  bench("Signals (Mock)", () => {
-    const store = createSignalMock();
-    for (let i = 0; i < 100000; i++) store.set(i);
+  bench('Nanostores (Tiny)', () => {
+    nanoAtoms[0].set(Math.random());
+  });
+
+  bench('Preact Signals', () => {
+    preactSignals[0].value = Math.random();
+  });
+
+  bench('Solid Signals', () => {
+    solidSignals[0].set(Math.random());
   });
 });
 
-/* =======================================================
-   BENCH: 10k Updates with 100 Subscribers
-   ======================================================= */
-describe("10k Updates with 100 Subscribers", () => {
-  bench("SoulState", () => {
-    const store = createStore({ count: 0 });
-    for (let i = 0; i < 100; i++)
-      store.subscribe((s) => s.count, () => {});
-    for (let i = 0; i < 10000; i++) store.set({ count: i });
+describe('Subscriber Creation Performance (1,000 subscribers)', () => {
+  const initialState = { a: 0 };
+
+  bench('SoulState: Create 1,000 Subscribers', () => {
+    const store = createSoulState(initialState);
+    for (let i = 0; i < 1000; i++) {
+      store.subscribe(s => s.a, () => {});
+    }
   });
 
-  bench("Zustand (Mock)", () => {
-    const store = createZustandMock();
-    for (let i = 0; i < 100; i++) store.subscribe(() => {});
-    for (let i = 0; i < 10000; i++) store.setState(() => i);
+  bench('Zustand: Create 1,000 Subscribers', () => {
+    const store = createZustand(() => initialState);
+    for (let i = 0; i < 1000; i++) {
+      store.subscribe((s: any) => s.a);
+    }
   });
 
-  bench("Redux (Mock)", () => {
-    const store = createReduxMock();
-    for (let i = 0; i < 100; i++) store.subscribe(() => {});
-    for (let i = 0; i < 10000; i++) store.dispatch({ count: i });
-  });
-
-  bench("MobX (Mock)", () => {
-    const store = createMobxMock();
-    for (let i = 0; i < 100; i++) store.subscribe(() => {});
-    for (let i = 0; i < 10000; i++) store.set({ count: i });
-  });
-
-  bench("Valtio (Mock)", () => {
-    const store = createValtioMock();
-    for (let i = 0; i < 100; i++) store.subscribe(() => {});
-    for (let i = 0; i < 10000; i++) store.mutate((s) => (s.count = i));
-  });
-
-  bench("Signals (Mock)", () => {
-    const store = createSignalMock();
-    for (let i = 0; i < 100; i++) store.subscribe(() => {});
-    for (let i = 0; i < 10000; i++) store.set(i);
-  });
-});
-
-/* =======================================================
-   BENCH: 100k Selector Reads
-   ======================================================= */
-describe("100k Selector Reads", () => {
-  bench("SoulState", () => {
-    const store = createStore({ count: 0, user: { name: "test" } });
-    const selector = (s: any) => s.user.name;
-    for (let i = 0; i < 100000; i++) selector(store.get());
-  });
-
-  bench("Redux (Mock)", () => {
-    const store = createReduxMock();
-    for (let i = 0; i < 100000; i++) store.getState().count;
-  });
-
-  bench("MobX (Mock)", () => {
-    const store = createMobxMock();
-    for (let i = 0; i < 100000; i++) store.get().count;
-  });
-
-  bench("Valtio (Mock)", () => {
-    const store = createValtioMock();
-    for (let i = 0; i < 100000; i++) store.snapshot.count;
-  });
-
-  bench("Signals (Mock)", () => {
-    const store = createSignalMock();
-    for (let i = 0; i < 100000; i++) store.get();
+  bench('Jotai: Create 1,000 Subscribers', () => {
+    const store = createJotaiStore();
+    const aAtom = jotaiAtom(0);
+    for (let i = 0; i < 1000; i++) {
+      store.sub(aAtom, () => {});
+    }
   });
 });

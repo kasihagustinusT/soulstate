@@ -1,221 +1,52 @@
+# Subscriptions & Surgical Propagation
+
+The heart of SoulState's performance identity is its **Subscription Engine**. Unlike global broadcast systems that notify all listeners on every change, SoulState uses an **Invalidation Graph** to achieve surgical precision.
+
+## Granular Propagation
+
+When you create a subscription (via `useStore` or `store.subscribe`), it is registered in a **Directed Acyclic Graph (DAG)**.
+
+1.  **State Change**: An update is applied to the store.
+2.  **Graph Query**: The engine identifies only the nodes that explicitly depend on the changed keys.
+3.  **Topological Dispatch**: Nodes are notified in a deterministic order based on their level in the graph.
+
 ---
-title: Subscriptions
-sidebar_label: Subscriptions
+
+## Sparse Updates
+
+SoulState is optimized for **Sparse Updates**—scenarios where a large store exists, but most updates only affect a tiny fraction of the components.
+
+<CodeBlock language="typescript">
+{`// 100,000 subscribers are registered across various keys.
+// We update ONLY the 'user' key.
+store.setState({ user: { name: 'Bob' } });
+`}
+</CodeBlock>
+
+**Execution Profile:**
+- **SoulState**: Directly identifies the ~1,000 listeners watching `user`. Skips the other 99,000 completely.
+- **Complexity**: $O(M)$ where $M$ is the number of affected nodes.
+
 ---
 
-import CodeBlock from '@theme/CodeBlock';
-import { Admonition } from '@site/src/components/Admonition';
+## Irrelevant Update Elimination
 
-# Subscriptions
+Irrelevant updates are the silent performance killer in large React apps. SoulState eliminates them at three levels:
 
-SoulState's performance is built on its precise and efficient subscription model. When you use the `useStore` hook, you are creating a subscription that is highly optimized to prevent unnecessary re-renders.
+1.  **Graph Filtering**: If your key didn't change, your listener is not even considered for execution.
+2.  **Equality Suppression**: If a computed dependency recomputes but returns the same value, propagation stops at that node and never reaches downstream subscribers.
+3.  **No-Op Bypassing**: If `setState` is called with identical data, the entire propagation engine is bypassed.
 
-## The Subscription Model
+---
 
-At its core, a subscription consists of three parts:
+## Subscription Scalability
 
-1.  **A Selector Function**: A function you provide that extracts a specific slice of data from the state.
-2.  **A Listener Function**: A callback (managed internally by `useStore`) that React uses to trigger a re-render.
-3.  **An Equality Function**: A function that compares the previous selected state with the new one to determine if a change has occurred.
+SoulState's internal data structures are designed for enterprise-scale subscription graphs:
 
-A listener is only called if `!equalityFn(newSelectedState, oldSelectedState)`.
+- **O(1) Teardown**: Removing a subscription is a simple pointer update in a doubly linked list, preventing "unmount lag" in dynamic UIs.
+- **Sparse Memory Map**: Nodes are only created for active subscribers, keeping the memory footprint proportional to the active UI state.
+- **Topological Leveling**: Prevents "glitches" or redundant re-renders in complex dependency diamonds.
 
-<CodeBlock language="tsx">
-{`// Example: useStore(store, selector, equalityFn)
-
-// 1. The selector extracts the 'user' object
-const selector = state => state.user;
-
-// 2. The listener is React's internal 'onStoreChange' function
-
-// 3. The equality function defaults to Object.is
-const equalityFn = (a, b) => Object.is(a, b);
-
-// This component subscribes to the 'user' object.
-// It will only re-render if the reference to state.user changes.
-const user = useStore(useAppStore, state => state.user);
-`}
-</CodeBlock>
-
-## Default Equality Check: `Object.is`
-
-By default, SoulState uses `Object.is` for equality checking. This is a strict reference equality check, similar to `===`.
-
-This means a subscription will trigger an update if:
-- The selected value is a primitive (string, number, boolean) and its value changes.
-- The selected value is an object or array, and its reference changes (i.e., a new object/array is created).
-
-<CodeBlock language="typescript">
-{`// Primitive values
-Object.is(1, 1); // true (no update)
-Object.is(1, 2); // false (update!)
-
-// Object references
-const user = { name: 'John' };
-const sameUser = user;
-const newUser = { name: 'John' };
-
-Object.is(user, sameUser); // true (no update)
-Object.is(user, newUser);  // false (update!)
-`}
-</CodeBlock>
-
-<Admonition type="info" title="Why Reference Equality is Fast">
-  <p>Reference checks are extremely fast because they only involve comparing memory addresses. This is why SoulState encourages an immutable update pattern—creating new objects for changes makes the change detection trivial and efficient.</p>
-</Admonition>
-
-## Shallow Equality Checking
-
-Often, you need to select multiple values from the store at once. If you create a new object in your selector, the default `Object.is` check will always fail, causing a re-render on every state change.
-
-<CodeBlock language="tsx">
-{`// ⚠️ ANTI-PATTERN: This will re-render on EVERY state change!
-// Why? Because a new object { user, posts } is created on every run.
-const { user, posts } = useStore(useAppStore, state => ({
-  user: state.user,
-  posts: state.posts
-}));
-`}
-</CodeBlock>
-
-To solve this, SoulState provides a `shallow` equality function. You can use it by importing `shallow` from `soulstate/utils`.
-
-The `shallow` function performs a shallow comparison of the keys and values of two objects. It's the perfect tool for selectors that return a new object.
-
-<CodeBlock language="tsx">
-{`import { useStore } from 'soulstate/react';
-import { shallow } from 'soulstate/utils';
-
-// ✅ CORRECT: This will only re-render if 'user' or 'posts' change.
-const { user, posts } = useStore(
-  useAppStore,
-  state => ({ user: state.user, posts: state.posts }),
-  shallow // Use the shallow equality checker
-);
-`}
-</CodeBlock>
-
-## Custom Equality Functions
-
-For more complex scenarios, such as deep comparisons or ignoring certain fields, you can provide your own custom equality function as the third argument to `useStore`.
-
-<CodeBlock language="tsx">
-{`import { useStore } from 'soulstate/react';
-
-// Custom equality function that compares by id only
-const compareById = (a, b) => a.id === b.id;
-
-const user = useStore(
-  useAppStore,
-  state => state.user,
-  compareById
-);
-
-// Or use a deep comparison library
-import { equal } from 'fast-deep-equal';
-
-const settings = useStore(
-  useAppStore, 
-  state => state.settings,
-  equal
-);
-`}
-</CodeBlock>
-
-<Admonition type="danger" title="Performance Warning">
-  <p>Deep equality checks can be expensive. Use them with caution and only when necessary. For most cases, <code>Object.is</code> or <code>shallow</code> are sufficient and more performant.</p>
-</Admonition>
-
-## Under the Hood: The Subscription Graph
-
-SoulState manages all subscriptions in a **doubly linked list**. This data structure is a key reason for its high performance, offering **O(1)** time complexity for both adding and removing subscriptions.
-
-- **When a component mounts**: A new node is added to the end of the list (O(1)).
-- **When a component unmounts**: The node is removed by updating its neighbors' pointers (O(1)).
-
-This is significantly more efficient than using an array, where removing an item can be an O(n) operation, especially in large, dynamic applications.
-
-<CodeBlock language="typescript">
-{`// Simplified representation of the linked list structure
-interface SubscriptionNode<T, S> {
-  selector: (state: T) => S;
-  listener: (selectedState: S, prevSelectedState: S) => void;
-  equalityFn: (a: S, b: S) => boolean;
-  lastState: S;
-  prev: SubscriptionNode<T, any> | null;
-  next: SubscriptionNode<T, any> | null;
-}
-`}
-</CodeBlock>
-
-<Admonition type="info" title="Implementation Detail">
-  <p>The actual subscription implementation can be found in <code>src/core/subscriptions.ts</code>, which uses a doubly linked list for O(1) add/remove operations and efficient iteration.</p>
-</Admonition>
-
-## Microtask Batching
-
-SoulState batches multiple state updates using `queueMicrotask`, ensuring that subscribers are notified only once per event loop tick, even for multiple consecutive updates.
-
-<CodeBlock language="typescript">
-{`// In the store implementation:
-const scheduleNotification = () => {
-  if (!isNotificationScheduled) {
-    isNotificationScheduled = true;
-    queueMicrotask(notifySubscribers); // Batched!
-  }
-};
-
-// Multiple updates in one function
-const handleMultipleUpdates = () => {
-  store.set({ count: 1 });    // 🚫 No immediate notification
-  store.set({ user: 'John' }); // 🚫 No immediate notification  
-  store.set({ active: true }); // 🚫 No immediate notification
-  // ✅ All three updates batched into ONE notification
-};
-
-// This results in only one re-render for all three changes
-`}
-</CodeBlock>
-
-<Admonition type="tip" title="Performance Benefit">
-  <p>Microtask batching means that rapid, consecutive state updates (like in animations or rapid user input) won't cause excessive re-renders. All updates within the same event loop are coalesced into a single notification.</p>
-</Admonition>
-
-## Subscription Lifecycle
-
-Understanding the subscription lifecycle helps debug performance issues:
-
-1. **Mount**: Component calls `useStore` → New subscription node created
-2. **Update**: State changes → Selector runs → Equality check → Re-render if changed
-3. **Unmount**: Cleanup function runs → Subscription node removed
-
-<CodeBlock language="tsx">
-{`function UserProfile() {
-  // 1. On mount: subscription created and added to linked list
-  const user = useStore(store, state => state.user);
-  
-  // 2. On state change: selector runs, equality check happens
-  // 3. On unmount: subscription automatically removed from linked list
-  
-  return <div>{user.name}</div>;
-}
-`}
-</CodeBlock>
-
-## Best Practices
-
-### ✅ Do:
-- Use precise selectors to subscribe to minimal data
-- Leverage `shallow` for object selections
-- Keep equality functions simple and fast
-- Use multiple `useStore` calls for independent data
-
-### ❌ Don't:
-- Select entire state objects unnecessarily
-- Use expensive equality functions without need
-- Create new objects in selectors without `shallow`
-- Forget about the performance benefits of the linked list
-
-<Admonition type="success" title="Key Takeaway">
-  <p>SoulState's subscription system gives you surgical control over re-renders. By combining precise selectors with efficient equality checks and O(1) linked list operations, you get optimal performance by default.</p>
+<Admonition type="success" title="Systems-Grade Scaling">
+  <p>By moving from O(N) broadcast to O(M) surgical propagation, SoulState ensures that your application remains responsive at 100,000 subscribers, providing predictable latency even under heavy state load.</p>
 </Admonition>
