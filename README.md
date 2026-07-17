@@ -1,6 +1,24 @@
-# SoulState 🌌
+<p align="center">
+  <img
+    src="https://github.com/user-attachments/assets/b6df7f4f-10a8-4ec4-9165-e99033f2ee41"
+    alt="SoulState"
+    width="500"
+  />
+</p>
 
-**The Deterministic Systems-Grade Granular Reactive Runtime.**
+<h1 align="center">SoulState</h1>
+
+<p align="center">
+
+<img src="https://img.shields.io/badge/100K%2B%20Subscribers-Benchmarked-success?style=for-the-badge" />
+
+<img src="https://img.shields.io/badge/Surgical%20Propagation-Enabled-blue?style=for-the-badge" />
+
+<img src="https://img.shields.io/badge/Zero--Op%20Updates-Optimized-purple?style=for-the-badge" />
+
+<img src="https://img.shields.io/badge/Deterministic-Batching-orange?style=for-the-badge" />
+
+</p>
 
 SoulState is a high-performance state management engine specialized for sparse updates, deep dependency propagation, and enterprise-scale subscription graphs. It is designed to handle **100,000+ active subscribers** with predictable latency and surgical precision.
 
