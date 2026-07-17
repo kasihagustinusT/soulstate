@@ -1,3 +1,7 @@
+import CodeBlock from "@theme/CodeBlock"
+
+import {Admonition} from "@site/src/components/Admonition"
+
 # Internals: Linked-List Subscriber System
 
 SoulState manages subscribers using a **Doubly Linked List** to achieve $O(1)$ addition and removal complexity. This is critical for high-churn user interfaces where components frequently mount and unmount.

@@ -1,3 +1,7 @@
+import CodeBlock from "@theme/CodeBlock"
+
+import {Admonition} from "@site/src/components/Admonition"
+
 # Internals: Mutation & State Transition
 
 SoulState follows a strict **Immutable Update Pattern**. State transitions are not just about changing values; they are the triggers for the entire **Invalidation & Propagation Lifecycle**.

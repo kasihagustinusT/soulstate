@@ -7,9 +7,6 @@ const config: Config = {
   tagline: 'The Zero-Overhead State of Mind',
   favicon: 'img/SoulState.ico',
 
-  future: {
-    v4: true,
-  },
 
   url: 'https://soulstate.js.org',
   baseUrl: '/',

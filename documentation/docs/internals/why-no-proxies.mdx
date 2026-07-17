@@ -1,3 +1,7 @@
+import CodeBlock from "@theme/CodeBlock"
+
+import {Admonition} from "@site/src/components/Admonition"
+
 # Internals: Surgical Proxy Usage
 
 SoulState uses JavaScript Proxies for **Automatic Dependency Tracking**. However, unlike "Full Proxy" libraries where the entire state is wrapped in a permanent proxy, SoulState uses them **Surgically** to minimize runtime overhead and GC pressure.
