@@ -17,10 +17,11 @@ export default defineConfig({
   },
   format: ['cjs', 'esm'],
   dts: true,
-  splitting: false, // Keep react exports in their own file
+  splitting: false,
   sourcemap: true,
   clean: true,
   treeshake: true,
+  target: 'es2020',
   external: ['react', 'react-dom', 'use-sync-external-store'],
   outDir: 'dist',
   banner,

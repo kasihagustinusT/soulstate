@@ -2,9 +2,6 @@
  * SoulState Shallow Equality
  */
 
-import { useStore } from "../react/useStore";
-import { StoreApi, State, Selector } from "../core/types";
-
 export const shallow = <T, U>(a: T, b: U): boolean => {
   if (Object.is(a, b)) {
     return true;
@@ -38,10 +35,3 @@ export const shallow = <T, U>(a: T, b: U): boolean => {
 
   return true;
 };
-
-export function useShallow<T extends State, S>(
-  api: StoreApi<T>,
-  selector: Selector<T, S>,
-): S {
-  return useStore(api, selector, shallow);
-}

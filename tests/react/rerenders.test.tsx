@@ -4,7 +4,7 @@ import { expect, test, vi } from "vitest";
 
 import { createStore } from "../../src/core/store";
 import { useStore } from "../../src/react/useStore";
-import { useShallow } from "../../src/utils/shallow";
+import { useShallow } from "../../src/react/useShallow";
 
 interface RerenderState {
   a: number;

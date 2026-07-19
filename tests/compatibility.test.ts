@@ -1,5 +1,7 @@
 import { test, expect } from "vitest";
-import { createStore, useStore, batch, flushSync } from "../src/index";
+import { createStore, batch, flushSync } from "../src/index";
+import { useStore } from "../src/react/useStore";
+import { useShallow } from "../src/react/useShallow";
 import { persist } from "../src/middleware/persist";
 import { devtools } from "../src/middleware/devtools";
 import { shallow } from "../src/utils/shallow";
@@ -12,14 +14,17 @@ test("ESM: all entry points importable", () => {
   expect(typeof persist).toBe("function");
   expect(typeof devtools).toBe("function");
   expect(typeof shallow).toBe("function");
+  expect(typeof useShallow).toBe("function");
 });
 
 test("CJS: dist files loadable", () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const main = require("../dist/index.cjs");
   expect(typeof main.createStore).toBe("function");
-  expect(typeof main.useStore).toBe("function");
   expect(typeof main.batch).toBe("function");
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const react = require("../dist/react.cjs");
+  expect(typeof react.useStore).toBe("function");
 });
 
 test("middleware: persist and devtools work from dist", () => {

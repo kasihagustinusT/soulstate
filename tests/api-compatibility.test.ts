@@ -8,8 +8,6 @@ import {
   derived,
   batch,
   objectIs,
-  shallow,
-  useShallow,
   createSlice,
   combineSlices,
   type State,
@@ -27,6 +25,8 @@ import {
   type DependencyKey,
   type Middleware,
 } from "../src/index";
+import { shallow } from "../src/utils/shallow";
+import { useShallow } from "../src/react/useShallow";
 import {
   persist,
   devtools,
