@@ -1,7 +1,7 @@
 {
   "name": "soulstate",
   "type": "module",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "DAG-powered state management with surgical reactivity. A high-performance state management library for React and vanilla JS.",
   "author": "Kasih Agustinus",
   "license": "MIT",
