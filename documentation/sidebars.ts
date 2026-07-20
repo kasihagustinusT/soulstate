@@ -45,7 +45,7 @@ const sidebars: SidebarsConfig = {
         'internals/mutation',
         'internals/linked-list',
         'internals/why-no-proxies',
-        'internals/comparison-zustand',
+        'internals/comparison',
       ],
     },
     {
