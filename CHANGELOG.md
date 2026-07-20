@@ -1,3 +1,10 @@
+## [1.0.7](https://github.com/kasihagustinusT/soulstate/compare/v1.0.6...v1.0.7) (2026-07-20)
+
+
+### Bug Fixes
+
+* improve runtime stability ([ae0368d](https://github.com/kasihagustinusT/soulstate/commit/ae0368dd5f24480333a6455e441a8077fb163430))
+
 # Changelog
 
 All notable changes to this project will be documented in this file.
