@@ -4,7 +4,7 @@ import type * as Preset from '@docusaurus/preset-classic';
 
 const config: Config = {
   title: 'SoulState',
-  tagline: 'The Zero-Overhead State of Mind',
+  tagline: 'DAG-Powered State Management',
   favicon: 'img/SoulState.ico',
 
 

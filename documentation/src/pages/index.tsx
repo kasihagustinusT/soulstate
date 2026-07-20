@@ -6,8 +6,8 @@ import CodeBlock from '@theme/CodeBlock';
 export default function Home(): JSX.Element {
   return (
     <Layout
-      title="SoulState - The Zero-Overhead State of Mind"
-      description="DAG-powered, high-performance state management for React and vanilla JS"
+      title="SoulState - DAG-Powered State Management"
+      description="Surgical, graph-based state management for React with computed state, transactions, and deterministic batching"
     >
       <main>
         {/* Hero Section */}
@@ -15,7 +15,7 @@ export default function Home(): JSX.Element {
           <div style={{ maxWidth: '800px', margin: '0 auto' }}>
             <h1 className="hero__title">SoulState</h1>
             <p className="hero__subtitle">
-              The Zero-Overhead State of Mind
+              DAG-Powered State Management
             </p>
             <p style={{
               fontSize: '1.1rem',
@@ -25,7 +25,7 @@ export default function Home(): JSX.Element {
               maxWidth: '620px',
             }}>
               DAG-powered state management with surgical reactivity, computed state, and transactions.
-              Built for extreme performance at scale with zero overhead.
+              Built for applications with complex dependency graphs and high subscriber counts.
             </p>
             <div style={{
               display: 'flex',
@@ -61,12 +61,12 @@ export default function Home(): JSX.Element {
             margin: '0 auto',
           }}>
             {[
-              { value: '914x', label: 'Faster irrelevant update elimination' },
-              { value: '100K+', label: 'Subscribers at O(M) complexity' },
+              { value: 'O(M)', label: 'Surgical propagation (M = affected)' },
+              { value: '100K+', label: 'Subscribers benchmarked' },
               { value: '< 1KB', label: 'Zero runtime dependencies' },
               { value: 'O(1)', label: 'Unsubscribe via linked list' },
-              { value: 'O(1)', label: 'Bitmask dispatch (≤8 keys)' },
-              { value: '0', label: 'Memory allocations in set' },
+              { value: '≤64', label: 'Bitmask dispatch fast path' },
+              { value: 'O(1)', label: 'No-op update skipping' },
             ].map((metric, idx) => (
               <div key={idx} className="performance-metric">
                 <div className="metric-value">{metric.value}</div>
@@ -166,16 +166,18 @@ export default function Home(): JSX.Element {
               <h4 style={{ marginBottom: '1rem', marginTop: '2rem', fontWeight: 500, color: 'var(--ifm-color-emphasis-900)' }}>
                 2. Create Store with Computed State
               </h4>
-              <CodeBlock language="javascript">
+              <CodeBlock language="typescript">
 {`import { createStore } from 'soulstate';
 
-export const useCounterStore = createStore({
+export const counterStore = createStore({
   count: 0,
-  increment: () => useCounterStore.set(s => ({ count: s.count + 1 })),
-  get doubled() {
-    return useCounterStore.get('count') * 2;
-  }
-});`}
+  increment: () =>
+    counterStore.setState(s => ({ count: s.count + 1 })),
+});
+
+const doubled = counterStore.computed(
+  s => s.count * 2, 'doubled'
+);`}
               </CodeBlock>
             </div>
 
@@ -183,18 +185,18 @@ export const useCounterStore = createStore({
               <h4 style={{ marginBottom: '1rem', fontWeight: 500, color: 'var(--ifm-color-emphasis-900)' }}>
                 3. Use in React
               </h4>
-              <CodeBlock language="jsx">
+              <CodeBlock language="tsx">
 {`import { useStore } from 'soulstate/react';
-import { useCounterStore } from './store';
+import { counterStore, doubled } from './store';
 
 function Counter() {
-  const count = useStore(useCounterStore, s => s.count);
-  const doubled = useStore(useCounterStore, s => s.doubled);
-  const increment = useStore(useCounterStore, s => s.increment);
+  const count = useStore(counterStore, s => s.count);
+  const double = useStore(counterStore, () => doubled.value);
+  const increment = useStore(counterStore, s => s.increment);
 
   return (
     <div>
-      <h1>{count} × 2 = {doubled}</h1>
+      <h1>{count} × 2 = {double}</h1>
       <button onClick={increment}>+1</button>
     </div>
   );
@@ -226,12 +228,12 @@ function Counter() {
               { title: 'Transactions', desc: 'Atomic multi-mutation batches with rollback support' },
               { title: 'Slices', desc: 'Modular store composition with createSlice and combineSlices' },
               { title: 'Microtask Batching', desc: 'Deterministic batching of all setState calls via microtask scheduler' },
-              { title: 'Hybrid Dispatch', desc: 'Bitmask fast path for ≤8 keys, graph path for complex updates' },
+              { title: 'Hybrid Dispatch', desc: 'Bitmask fast path for ≤64 keys, graph path for complex updates' },
               { title: 'TypeScript First', desc: 'Full type inference and safety with zero boilerplate' },
               { title: 'SSR Support', desc: 'Next.js and server-side rendering ready out of the box' },
               { title: 'Middleware', desc: 'Redux DevTools integration and persistence middleware included' },
               { title: 'Shallow Equality', desc: 'Built-in shallow comparator and useShallow hook for fine-grained renders' },
-              { title: 'Zero Allocations', desc: 'Reusable proxy tracking and minimal structural sharing in set' },
+              { title: 'Object Pools', desc: 'Pre-allocated node and edge pools reduce garbage collection pressure' },
               { title: 'Vanilla JS', desc: 'Full API surface works without React — no peer dependency required' },
             ].map((feature, idx) => (
               <div key={idx} className="card" style={{
@@ -291,8 +293,7 @@ function Counter() {
                   { bench: 'Sync throughput (ops/s)', soul: '5.2M', other: '5.5M', ratio: '1.05x slower' },
                   { bench: 'No-op elimination (sparse)', soul: '914x', other: 'baseline', ratio: '914x faster' },
                   { bench: 'Deep chain recomputation', soul: '26x', other: 'baseline', ratio: '26x faster' },
-                  { bench: 'Hybrid dispatch (8 keys)', soul: '2.8x', other: 'baseline', ratio: '2.8x faster' },
-                  { bench: 'Hybrid dispatch (64 keys)', soul: '16.8x', other: 'baseline', ratio: '16.8x faster' },
+                  { bench: 'Hybrid dispatch (≤64 keys)', soul: '16.8x', other: 'baseline', ratio: '16.8x faster' },
                 ].map((row, idx) => (
                   <tr key={idx}>
                     <td style={{ textAlign: 'left', fontWeight: 500 }}>{row.bench}</td>

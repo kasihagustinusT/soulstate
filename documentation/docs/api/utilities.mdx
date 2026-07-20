@@ -8,224 +8,293 @@ import { Admonition } from '@site/src/components/Admonition';
 
 # API: Utilities
 
-SoulState provides utility functions to enhance state management and optimize React component re-renders.
+SoulState provides utility functions for selector composition, scheduling, batching, and equality checks.
+
+## Import Paths
+
+| Utility | Import |
+|---------|--------|
+| `batch`, `objectIs`, `createSlice`, `combineSlices` | `import { ... } from 'soulstate'` |
+| `shallow`, `batch`, `objectIs`, `createSlice`, `combineSlices` | `import { ... } from 'soulstate/utils'` |
+| `createSelector`, `selector`, `derived` | `import { ... } from 'soulstate'` |
+| `scheduleTask`, `flushSync` | `import { ... } from 'soulstate'` |
+
+<Admonition type="warning" title="Import Path">
+  <p><code>shallow</code> is only available from <code>'soulstate/utils'</code>. It is <strong>not</strong> exported from the main <code>'soulstate'</code> entry.</p>
+</Admonition>
+
+---
 
 ## `shallow`
 
-The `shallow` utility performs a shallow comparison of two objects, checking if their top-level properties are equal. It's primarily used with `useStore` or `store.subscribe()` when selectors return new objects.
+Performs a shallow comparison of two objects, checking if their top-level properties are equal using `Object.is`.
 
-### Summary
-
-`shallow` compares the top-level properties of two objects using strict equality (`Object.is`). It returns `true` if all properties are equal, `false` otherwise.
-
-### Function Signature
+### Signature
 
 <CodeBlock language="typescript">
-{`function shallow<T, U>(a: T, b: U): boolean;
-`}
+{`function shallow<T, U>(a: T, b: U): boolean;`}
 </CodeBlock>
 
 ### Parameters
 
-- `a: T`: The first value to compare
-- `b: U`: The second value to compare
+- `a: T` — The first value to compare.
+- `b: U` — The second value to compare.
 
 ### Return Value
 
-- `boolean`: `true` if values are shallowly equal, `false` otherwise
+`boolean` — `true` if all top-level properties are equal, `false` otherwise.
 
-### Usage Examples
+### When to Use
 
-#### With `useStore`
-
-Use `shallow` as the third argument to `useStore` when selecting multiple properties.
+Use `shallow` as an `equalityFn` when your selector returns a new object literal on each render but with the same values:
 
 <CodeBlock language="tsx">
 {`import { useStore } from 'soulstate/react';
 import { shallow } from 'soulstate/utils';
-import { userStore } from '../stores/userStore';
 
 function UserProfile() {
   const { name, email } = useStore(
     userStore,
-    (state) => ({ name: state.name, email: state.email }),
-    shallow // Only re-render when name or email changes
+    (state) => ({ name: state.name, email: email: state.email }),
+    shallow
   );
-
-  return (
-    <div>
-      <p>Name: {name}</p>
-      <p>Email: {email}</p>
-    </div>
-  );
-}
-`}
+  return <div>{name} — {email}</div>;
+}`}
 </CodeBlock>
 
-#### With `store.subscribe()`
+### When NOT to Use
 
-Use `shallow` with the low-level subscription API.
-
-<CodeBlock language="typescript">
-{`import { userStore } from '../stores/userStore';
-import { shallow } from 'soulstate/utils';
-
-const unsubscribe = userStore.subscribe(
-  (state) => ({ name: state.name, email: state.email }),
-  (newData, prevData) => {
-    console.log('User data changed:', newData);
-  },
-  { equalityFn: shallow }
-);
-
-// Clean up
-unsubscribe();
-`}
-</CodeBlock>
-
----
-## `enableInstrumentation`
-
-Expose systems-grade diagnostics to identify propagation bottlenecks and monitor runtime performance.
-
-### Function Signature
-
-<CodeBlock language="typescript">
-{`function enableInstrumentation(options?: RuntimeInstrumentation): void;
-
-interface RuntimeInstrumentation {
-  onFlush?: (duration: number, keys: Set<DependencyKey>) => void;
-  onSelectorRun?: (name: DependencyKey, duration: number) => void;
-  onInvalidate?: (key: DependencyKey) => void;
-}
-`}
-</CodeBlock>
-
-### Usage
-
-<CodeBlock language="typescript">
-{`store.enableInstrumentation({
-  onFlush: (duration, keys) => {
-    console.log(\`Flush took \${duration.toFixed(3)}ms for keys:\`, keys);
-  },
-  onSelectorRun: (name, duration) => {
-    console.log(\`Selector \${String(name)} took \${duration.toFixed(3)}ms\`);
-  }
-});
-`}
-</CodeBlock>
-
----
-
-## `getMetrics`
-
-Retrieves a snapshot of the current runtime performance metrics.
-
-### Function Signature
-
-<CodeBlock language="typescript">
-{`function getMetrics(): MetricsSnapshot;
-
-interface MetricsSnapshot {
-  flushCount: number;
-  selectorRunCount: number;
-  invalidationCount: number;
-  averageFlushDuration: number;
-  totalFlushDuration: number;
-}
-`}
-</CodeBlock>
-
-### Usage
-
-<CodeBlock language="typescript">
-{`const metrics = store.getMetrics();
-console.log('Average Flush Time:', metrics.averageFlushDuration);
-`}
-</CodeBlock>
+- For primitive values — use the default `Object.is` instead.
+- For deeply nested comparisons — `shallow` only checks top-level properties.
 
 ---
 
 ## `objectIs`
 
-The default equality function used by SoulState, providing strict reference equality checking.
+The default equality function used by SoulState. Equivalent to `Object.is`.
 
-### Function Signature
-
-<CodeBlock language="typescript">
-{`function objectIs(a: any, b: any): boolean;
-`}
-</CodeBlock>
-
-### Usage
+### Signature
 
 <CodeBlock language="typescript">
-{`import { objectIs } from 'soulstate/utils';
-
-// Same as Object.is
-objectIs(1, 1); // true
-objectIs(NaN, NaN); // true
-objectIs(0, -0); // false
-
-// Reference equality for objects
-const obj = {};
-objectIs(obj, obj); // true
-objectIs({}, {}); // false
-`}
+{`const objectIs: (a: any, b: any) => boolean;`}
 </CodeBlock>
+
+### Behavior
+
+```typescript
+import { objectIs } from 'soulstate';
+
+objectIs(1, 1);       // true
+objectIs(NaN, NaN);   // true
+objectIs(0, -0);      // false
+objectIs({}, {});     // false
+```
 
 ---
 
 ## `batch`
 
-Utility for grouping multiple operations. Note that SoulState automatically batches all `setState` calls using microtasks, so this utility is primarily for semantic grouping or advanced patterns.
+Groups multiple operations into a single callback. SoulState automatically batches all `setState` calls via microtasks, so this utility is primarily for semantic grouping.
 
-### Function Signature
+### Signature
 
 <CodeBlock language="typescript">
-{`function batch(callback: () => void): void;
-`}
+{`function batch(callback: () => void): void;`}
 </CodeBlock>
 
 ### Usage
 
 <CodeBlock language="typescript">
-{`import { batch } from 'soulstate/utils';
+{`import { batch } from 'soulstate';
 
-// Manual batching (rarely needed due to automatic microtask batching)
 batch(() => {
   store.setState({ count: 1 });
   store.setState({ user: 'John' });
-  store.setState({ active: true });
-});
-`}
+});`}
 </CodeBlock>
+
+---
+
+## `createSelector`
+
+Creates a memoized selector that caches its result until the input slice changes.
+
+### Signature
+
+<CodeBlock language="typescript">
+{`function createSelector<T, S, R>(
+  selector: (state: T) => S,
+  combiner: (val: S) => R,
+  equalityFn?: (a: S, b: S) => boolean
+): (state: T) => R;`}
+</CodeBlock>
+
+### Parameters
+
+- `selector` — Extracts a slice from the state.
+- `combiner` — Transforms the slice into a derived value.
+- `equalityFn` — Optional comparison function (defaults to `Object.is`).
+
+### Return Value
+
+A new selector function that memoizes its result.
+
+### Usage
+
+<CodeBlock language="typescript">
+{`import { createSelector } from 'soulstate';
+
+const selectDoubled = createSelector(
+  (s: { count: number }) => s.count,
+  (count) => count * 2
+);
+
+// First call: computes
+selectDoubled(store.getState()); // 2
+
+// Second call with same input: returns cached result
+selectDoubled(store.getState()); // 2 (no recomputation)`}
+</CodeBlock>
+
+---
+
+## `selector`
+
+Identity function for type inference. Returns the function unchanged.
+
+### Signature
+
+<CodeBlock language="typescript">
+{`function selector<T, S>(fn: (state: T) => S): (state: T) => S;`}
+</CodeBlock>
+
+### Usage
+
+<CodeBlock language="typescript">
+{`import { selector } from 'soulstate';
+
+const selectCount = selector((s: { count: number }) => s.count);
+selectCount({ count: 42 }); // 42`}
+</CodeBlock>
+
+---
+
+## `derived`
+
+Composable selector utility. Combines multiple selectors or computed values into a single derived selector.
+
+### Signature
+
+<CodeBlock language="typescript">
+{`function derived<T, S extends any[], R>(
+  ...args: [
+    ...{ [K in keyof S]: ((state: T) => S[K]) | { value: S[K] } },
+    (...vals: S) => R
+  ]
+): (state: T) => R;`}
+</CodeBlock>
+
+### Parameters
+
+- `...selectors` — An array of selector functions or `Computed` objects, followed by a combiner function as the last argument.
+
+### Return Value
+
+A new selector function that computes the derived value.
+
+### Usage
+
+<CodeBlock language="typescript">
+{`import { derived } from 'soulstate';
+
+const selectFullName = derived(
+  (s: { first: string; last: string }) => s.first,
+  (s: { first: string; last: string }) => s.last,
+  (first, last) => \`\${first} \${last}\`
+);
+
+selectFullName({ first: 'Jane', last: 'Doe' }); // "Jane Doe"`}
+</CodeBlock>
+
+### Composing with Computed
+
+<CodeBlock language="typescript">
+{`import { createStore, derived } from 'soulstate';
+
+const store = createStore({ a: 1, b: 2 });
+const aComp = store.computed(s => s.a);
+const bComp = store.computed(s => s.b);
+
+const sum = derived(aComp, bComp, (a, b) => a + b);
+sum(store.getState()); // 3`}
+</CodeBlock>
+
+---
+
+## `scheduleTask`
+
+Schedules a task on the microtask queue. Duplicate tasks (same function reference) are deduplicated.
+
+### Signature
+
+<CodeBlock language="typescript">
+{`function scheduleTask(task: () => void): void;`}
+</CodeBlock>
+
+### Behavior
+
+- Tasks are executed in FIFO order during the next microtask flush.
+- If the same function reference is already queued, it is not added again.
+- Tasks scheduled during a flush are executed in a subsequent microtask.
+
+<Admonition type="info" title="Internal Use">
+  <p><code>scheduleTask</code> is used internally by SoulState's runtime to batch state updates. You rarely need to call it directly.</p>
+</Admonition>
+
+---
+
+## `flushSync`
+
+Executes a callback immediately. Unlike `scheduleTask`, this does NOT drain the microtask notification queue.
+
+### Signature
+
+<CodeBlock language="typescript">
+{`function flushSync<T>(callback: () => T): T;`}
+</CodeBlock>
+
+### Usage
+
+<CodeBlock language="typescript">
+{`import { flushSync } from 'soulstate';
+
+flushSync(() => {
+  // Executes synchronously
+  console.log('runs immediately');
+});`}
+</CodeBlock>
+
+<Admonition type="warning" title="Caution">
+  <p><code>flushSync</code> executes the callback immediately but does <strong>not</strong> process pending microtask notifications. Subscriber notifications from prior <code>setState</code> calls may still be pending.</p>
+</Admonition>
+
+---
+
+## `createSlice`
+
+Creates a domain-specific state slice with auto-injected actions. See [Slices API](/docs/api/slices) for full documentation.
+
+## `combineSlices`
+
+Merges multiple slice creators into a single state creator. See [Slices API](/docs/api/slices) for full documentation.
 
 ---
 
 ## Performance Characteristics
 
-- **`shallow`**: O(n) where n is number of properties.
-- **`objectIs`**: O(1) constant time operation.
-- **Automatic batching**: All updates are batched with `queueMicrotask` by the core runtime.
-
-## Best Practices
-
-### ✅ Do:
-- Use `shallow` for object selections from multiple properties.
-- Use default `Object.is` for primitive values.
-- Trust SoulState's automatic microtask batching.
-- Import utilities from `'soulstate/utils'`.
-
-### ❌ Don't:
-- Use `shallow` for primitive values.
-- Expect `shallow` to compare nested objects.
-- Manually batch updates unless necessary for code organization.
-
-<Admonition type="info" title="Import Path">
-  <p>All utilities are exported from <code>'soulstate/utils'</code> and are also available in the main <code>'soulstate'</code> package.</p>
-</Admonition>
-
-<Admonition type="warning" title="Automatic Batching">
-  <p>SoulState automatically batches all state updates using microtasks. The <code>batch</code> utility is provided for consistency but is often redundant in practice.</p>
-</Admonition>
+- **`shallow`**: O(n) where n is the number of top-level properties.
+- **`objectIs`**: O(1) — delegates to `Object.is`.
+- **`createSelector`**: O(1) memoized after first call; recomputes only when input slice changes.
+- **`batch`**: No overhead — directly invokes the callback.
+- **`scheduleTask`**: O(1) enqueue; deduplicates by reference equality.
+- **`flushSync`**: O(1) — synchronous callback invocation.

@@ -27,7 +27,6 @@ Registers a listener function that is called when a selected slice of state chan
 2.  **`listener`**: A function called whenever the selected value changes.
 3.  **`options`**:
     - `equalityFn`: Comparison function (defaults to `Object.is`).
-    - `fireImmediately`: If `true`, the listener is called immediately with the current state.
 
 ### Returns
 
@@ -40,14 +39,14 @@ A teardown function (`() => void`) that unregisters the listener and removes its
 When you subscribe to `s => s.user.name`, SoulState:
 1.  **Tracks**: Executes the selector once to identify accessed keys (`user`).
 2.  **Registers**: Creates a node in the `InvalidationGraph` mapping `user` → `listener`.
-3.  **Monitors**: When `setState` includes `user`, the `PropagationEngine` identifies your listener as an affected node.
+3.  **Monitors**: When `setState` includes `user`, the `InvalidationGraph` identifies your listener as an affected node.
 4.  **Re-evaluates**: The selector is re-run. If the result changed (per `equalityFn`), the `listener` is triggered.
 
 ---
 
 ## Irrelevant Update Elimination
 
-If your selector does not access a key (e.g., `s => s.count`), changes to `user` will **never** trigger your listener. The `PropagationEngine` skips unrelated nodes entirely, achieving $O(M)$ performance.
+If your selector does not access a key (e.g., `s => s.count`), changes to `user` will **never** trigger your listener. The `InvalidationGraph` skips unrelated nodes entirely, achieving $O(M)$ performance.
 
 <CodeBlock language="typescript">
 {`// Surgical Subscription
@@ -74,7 +73,7 @@ Removing a subscription is an **O(1)** operation.
 {`const unsub = store.subscribe(s => s.a, () => {});
 
 // Later:
-unsub(); // Instantly removed from graph and linked-list
+unsub(); // O(1) removal from graph and linked-list
 `}
 </CodeBlock>
 

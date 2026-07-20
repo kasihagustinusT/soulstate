@@ -14,11 +14,10 @@ Updates the store state and triggers the propagation engine.
 
 <CodeBlock language="typescript">
 {`function setState(
-  updater: T | Partial<T> | ((state: T) => T | Partial<T>),
+  updater: Partial<T> | ((state: T) => Partial<T> | T),
   replace?: boolean,
   sync?: boolean
-): void;
-`}
+): void;`}
 </CodeBlock>
 
 ### Parameters

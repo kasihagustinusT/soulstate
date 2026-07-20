@@ -24,7 +24,7 @@ SoulState maintains your state as a **Plain Immutable Object**. Proxies are only
 
 ---
 
-## Zero-Allocation Tracking
+## Reusable Tracking Proxy
 
 SoulState further optimizes this by using a **Reusable Tracking Proxy** (in `src/internals/invalidation.ts`).
 
@@ -44,7 +44,7 @@ const trackingProxy = new Proxy({}, handler);
 `}
 </CodeBlock>
 
-By reusing a single Proxy instance and a single `Set` for key tracking, SoulState achieves **Zero-Allocation Tracking** during the propagation flush, which is critical for maintaining high Hertz in 100,000+ subscriber scenarios.
+By reusing a single Proxy instance and a single `Set` for key tracking, SoulState minimizes allocations during the tracking phase, which is critical for maintaining high throughput in 100,000+ subscriber scenarios.
 
 ---
 

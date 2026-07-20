@@ -39,7 +39,7 @@
 | Symbol | Members |
 |--------|---------|
 | `StoreApi<T>` | `getState`, `getVersion`, `setState`, `subscribe`, `beginTransaction`, `commitTransaction`, `rollbackTransaction`, `computed`, `enableInstrumentation`, `destroy`, `getMetrics` |
-| `Computed<T>` | `value: T`, `name?: string \| symbol`, `destroy(): void` |
+| `Computed<T>` | `readonly value: T`, `readonly name?: string \| symbol`, `destroy(): void` |
 | `Derived<T>` | extends `Computed<T>` + `dependencies: Set<Computed<any> \| string \| symbol>` |
 | `SubscribeOptions<S>` | `equalityFn?: EqualityFn<S>` |
 | `RuntimeInstrumentation` | `onFlush?`, `onSelectorRun?`, `onInvalidate?`, `onRender?` |
@@ -92,7 +92,7 @@
 
 | Symbol | Signature | Description |
 |--------|-----------|-------------|
-| `batch` | `(callback: () => void): void` | Explicit batch utility |
+| `batch` | `(callback: () => void): void` | No-op wrapper (automatic microtask batching handles batching) |
 | `objectIs` | `Object.is` | Reference equality check |
 | `shallow` | `<T, U>(a: T, b: U): boolean` | Shallow equality comparison |
 | `useShallow` | `<T, S>(api, selector): S` | Shallow equality hook |

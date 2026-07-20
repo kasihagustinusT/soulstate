@@ -11,16 +11,15 @@ SoulState manages subscribers using a **Doubly Linked List** to achieve $O(1)$ a
 Every subscription (granular or global) is represented by a node in the list.
 
 <CodeBlock language="typescript">
-{`// src/core/subscriptions.ts
-export interface SubscriptionNode<S> {
-  id: DependencyKey;
+{`// src/core/subscriptions.ts (extends ReactiveNode from graph.ts)
+export interface SubscriptionNode<S> extends ReactiveNode {
   selector: (state: any) => S;
   listener: (curr: S, prev: S) => void;
   equalityFn: (a: S, b: S) => boolean;
   lastSelectedState: S;
-  dependencies: Set<DependencyKey>;
-  prev: SubscriptionNode<any> | null;
+  fastKey: DependencyKey | null;
   next: SubscriptionNode<any> | null;
+  prev: SubscriptionNode<any> | null;
 }
 `}
 </CodeBlock>
@@ -42,7 +41,7 @@ else this.tail = prev;
 `}
 </CodeBlock>
 
-This ensures that even with 100,000 subscribers, unmounting a component remains instantaneous.
+This ensures that even with 100,000 subscribers, unmounting a component is an O(1) pointer operation.
 
 ---
 

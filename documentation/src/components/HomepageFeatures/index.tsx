@@ -9,16 +9,16 @@ export default function HomepageFeatures() {
         <div className="text-center mb-12">
           <h1 className="text-4xl font-bold mb-4">SoulState</h1>
           <p className="text-lg opacity-80 max-w-2xl mx-auto">
-            A zero-overhead, minimalist, blazing-fast state management library for React & Vanilla JS.
+            A DAG-powered, graph-based state management library for React and vanilla JS.
           </p>
         </div>
 
         <div className="row">
           <Feature
-            title="Zero Overhead"
+            title="Surgical Reactivity"
             description={
-              <>Re-engineered core with microtask batching, linked-list subscribers, and ultra-minimal updates.
-              No proxies. No magic. No bloat.</>
+              <>DAG-based invalidation with microtask batching, linked-list subscribers, and bitmask dispatch.
+              Only affected subscribers are notified.</>
             }
           />
 

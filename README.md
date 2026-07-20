@@ -42,7 +42,7 @@ SoulState is NOT a Zustand clone. While it maintains a familiar API, its interna
 SoulState excels where global-broadcast libraries struggle: high-density subscription environments.
 
 ### Honest Benchmark Summary
-*10,000 subscribers, 100 keys, 1% update impact*
+*100,000 subscribers, 100 keys, 1% update impact*
 
 | Library | Sparse Update (hz) | Relevant Update (hz) | Identity |
 | :--- | :--- | :--- | :--- |
@@ -59,7 +59,7 @@ SoulState is built on three systems-grade pillars:
 
 1.  **Invalidation Graph**: A reverse-dependency DAG that orchestrates surgical invalidation and recomputation.
 2.  **Surgical Propagation Engine**: A level-based scheduler that ensures glitch-free updates in deterministic topological order.
-3.  **Zero-Allocation Tracking**: A reusable proxy-based tracking system that detects dependencies with minimal garbage collection pressure.
+3.  **Proxy-Based Tracking**: A reusable proxy-based tracking system that detects dependencies with minimal garbage collection pressure.
 
 ## 📦 Installation
 
@@ -83,7 +83,7 @@ const store = createStore({
 SoulState automatically tracks which keys your selector accesses. If you only use `user.name`, changes to `notifications` will **never** trigger a re-render or even a selector execution.
 
 ```tsx
-import { useStore } from 'soulstate';
+import { useStore } from 'soulstate/react';
 
 function Profile() {
   // Surgically tracks 'user.name'

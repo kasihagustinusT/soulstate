@@ -39,13 +39,17 @@ Yes. SoulState is used in production applications and has been battle-tested wit
 ```typescript
 import { createStore } from 'soulstate';
 
+// With initial state object
 const store = createStore({
-  state: { count: 0, name: 'World' },
-  actions: {
-    increment: (state) => ({ count: state.count + 1 }),
-    setName: (state, name) => ({ ...state, name }),
-  },
+  count: 0,
+  name: 'World'
 });
+
+// Or with creator function (Zustand-style)
+const store = createStore((setState, getState) => ({
+  count: 0,
+  increment: () => setState((state) => ({ count: state.count + 1 })),
+}));
 ```
 
 ### How do I subscribe to state changes?
@@ -70,26 +74,28 @@ const doubleCount = store.computed((state) => state.count * 2);
 // Access computed value
 console.log(doubleCount.value); // 2
 
-// Subscribe to computed changes
-doubleCount.subscribe((value) => {
-  console.log('Double count:', value);
-});
+// Destroy when no longer needed
+// doubleCount.destroy();
 ```
 
 ### How do I use transactions?
 
 ```typescript
 // Batch multiple updates atomically
-store.transaction((state) => {
-  state.count += 1;
-  state.name = 'updated';
-});
-
-// Or with explicit begin/commit
-const transaction = store.beginTransaction();
+store.beginTransaction();
 store.setState({ count: 1 });
 store.setState({ name: 'updated' });
-transaction.commit();
+store.commitTransaction();
+
+// With rollback on error
+store.beginTransaction();
+store.setState({ count: 1 });
+store.setState({ name: 'updated' });
+if (error) {
+  store.rollbackTransaction();
+} else {
+  store.commitTransaction();
+}
 ```
 
 ## Performance
@@ -97,7 +103,7 @@ transaction.commit();
 ### How does SoulState achieve high performance?
 
 1. **Surgical Updates**: Only affected subscribers are notified
-2. **Zero-Allocation Tracking**: Reusable proxy-based dependency detection
+2. **Proxy-Based Tracking**: Reusable proxy-based dependency detection
 3. **Bitmask Fast Paths**: O(1) key lookup for small state objects
 4. **Microtask Batching**: Automatic update batching
 5. **Equality Fast-Path**: Skips propagation when values don't change
@@ -126,16 +132,18 @@ import { createStore } from 'soulstate';
 import { useStore } from 'soulstate/react';
 
 const store = createStore({
-  state: { count: 0 },
-  actions: {
-    increment: (state) => ({ count: state.count + 1 }),
-  },
+  count: 0
 });
+
+// Define actions separately
+const actions = {
+  increment: () => store.setState(s => ({ count: s.count + 1 })),
+};
 
 function Counter() {
   const count = useStore(store, (state) => state.count);
   return (
-    <button onClick={() => store.getState().increment()}>
+    <button onClick={actions.increment}>
       {count}
     </button>
   );
@@ -147,7 +155,7 @@ function Counter() {
 Use the `shallow` equality function for object selections:
 
 ```typescript
-import { shallow } from 'soulstate/shallow';
+import { shallow } from 'soulstate/utils';
 
 const { a, b } = useStore(
   store,
@@ -163,9 +171,10 @@ SoulState works with Next.js out of the box:
 ```typescript
 // pages/_app.tsx
 import { createStore } from 'soulstate';
+import { Provider } from 'soulstate/react';
 
 const store = createStore({
-  state: { count: 0 },
+  count: 0,
 });
 
 export default function App({ Component, pageProps }) {
@@ -185,13 +194,13 @@ Yes. Use the `devtools` middleware:
 
 ```typescript
 import { createStore } from 'soulstate';
-import { devtools } from 'soulstate/middleware';
+import { middleware } from 'soulstate';
+const { devtools } = middleware;
 
 const store = createStore(
-  devtools({
-    state: { count: 0 },
-    name: 'My Store',
-  })
+  devtools({ name: 'My Store' })((set) => ({
+    count: 0,
+  }))
 );
 ```
 
@@ -201,14 +210,13 @@ Yes. Use the `persist` middleware:
 
 ```typescript
 import { createStore } from 'soulstate';
-import { persist } from 'soulstate/middleware';
+import { middleware } from 'soulstate';
+const { persist } = middleware;
 
 const store = createStore(
-  persist({
-    state: { count: 0 },
-    name: 'my-store',
-    storage: localStorage,
-  })
+  persist({ key: 'my-store', storage: localStorage })((set) => ({
+    count: 0,
+  }))
 );
 ```
 
@@ -236,11 +244,8 @@ Yes. SoulState is written in TypeScript and provides full type inference:
 
 ```typescript
 const store = createStore({
-  state: { count: 0, name: 'World' },
-  actions: {
-    increment: (state) => ({ count: state.count + 1 }),
-    setName: (state, name: string) => ({ ...state, name }),
-  },
+  count: 0,
+  name: 'World',
 });
 
 // TypeScript knows the type of count
@@ -257,17 +262,9 @@ interface MyState {
   name: string;
 }
 
-interface MyActions {
-  increment: () => void;
-  setName: (name: string) => void;
-}
-
-const store = createStore<MyState, MyActions>({
-  state: { count: 0, name: 'World' },
-  actions: {
-    increment: (state) => ({ count: state.count + 1 }),
-    setName: (state, name) => ({ ...state, name }),
-  },
+const store = createStore<MyState>({
+  count: 0,
+  name: 'World',
 });
 ```
 

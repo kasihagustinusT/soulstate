@@ -17,22 +17,20 @@ SoulState's runtime architecture consists of six primary components:
 1.  **StoreApi**: The public interface (`getState`, `setState`, `subscribe`, `computed`).
 2.  **Runtime**: The central orchestrator (in `src/core/runtime.ts`) that manages the state transition and coordination pipeline.
 3.  **InvalidationGraph**: A Directed Acyclic Graph (DAG) for tracking state-to-subscriber and state-to-computed relationships (in `src/internals/graph.ts`).
-4.  **PropagationEngine**: A topological level-based dispatch system (in `src/internals/propagation.ts`).
-5.  **SubscriptionManager**: A high-performance dual linked-list system for global and granular subscribers (in `src/core/subscriptions.ts`).
-6.  **Scheduler**: A deterministic microtask-based batching engine (in `src/core/scheduler.ts`).
+4.  **SubscriptionManager**: A high-performance dual linked-list system for global and granular subscribers (in `src/core/subscriptions.ts`).
+5.  **Scheduler**: A deterministic microtask-based batching engine (in `src/core/scheduler.ts`).
+6.  **TransactionEngine**: A transaction buffering system with begin/commit/rollback lifecycle (in `src/core/transactions.ts`).
 
 ```mermaid
 graph TD
     A[Public API] -->|setState| B[Runtime];
     B -->|Batching| C[Scheduler];
     C -->|Microtask| D[Runtime.processUpdate];
-    D -->|Query| E[InvalidationGraph];
-    E -->|Affected Nodes| F[PropagationEngine];
-    F -->|Level 0| G[State Keys];
-    G -->|Level 1| H[Computeds/Subscribers];
-    H -->|Level 2+| I[Nested Computeds];
-    I --> J[Surgical Dispatch];
-    J --> K[Component/Listener];
+    D -->|Bitmask/Key Dispatch| E[SubscriptionManager];
+    D -->|Graph Invalidation| F[InvalidationGraph];
+    F -->|Affected Nodes by Level| G[Level-by-Level Propagation];
+    G --> H[Surgical Dispatch];
+    H --> I[Component/Listener];
 ```
 
 ## The Runtime Orchestrator
@@ -46,27 +44,40 @@ When `setState` is called, the following happens:
 1.  **State Apply**: The new partial state is applied immediately to the internal state tree.
 2.  **Key Detection**: SoulState identifies which top-level keys changed.
 3.  **Scheduling**: An update is requested via the `Scheduler`.
-4.  **Topological Propagation**: During the flush phase, the `PropagationEngine` traverses the `InvalidationGraph` in level order.
+4.  **Topological Propagation**: During the flush phase, the `Runtime` traverses the `InvalidationGraph` in level order.
 
 <CodeBlock language="typescript">
 {`// src/core/runtime.ts (simplified logic)
 processUpdate() {
   const currentState = this.state;
   const flushId = ++this.flushId;
+  this.subscriptions.startBatch();
 
-  // Step 1: Query the graph for affected nodes sorted by Level
-  const affectedByLevel = this.propagation.process(this.changedKeys, flushId);
-  this.changedKeys.clear();
+  // Phase 1: Bitmask/Key-based fast-path dispatch
+  if (this.changedKeys.size <= 64) {
+    this.subscriptions.notifyBitmask(currentState, this.maskLow, this.maskHigh, flushId);
+  } else {
+    this.subscriptions.notifyKeys(currentState, this.changedKeys, flushId);
+  }
 
-  // Step 2: Level-by-level propagation (Topological Order)
-  if (affectedByLevel) {
-    for (const nodes of affectedByLevel) {
-      if (!nodes) continue;
-      for (const node of nodes) {
-        this.dispatch(node, currentState);
+  // Phase 2: Graph-based granular notification (level-ordered)
+  if (this.hasGranularListeners) {
+    this.graph.invalidate(this.changedKeys, flushId);
+    const affectedByLevel = this.graph.consumeAffectedNodes();
+    if (affectedByLevel) {
+      for (const nodes of affectedByLevel) {
+        if (!nodes) continue;
+        for (const node of nodes) {
+          this.dispatch(node, currentState);
+        }
       }
     }
   }
+
+  // Phase 3: Global listener notification
+  this.subscriptions.notify(currentState, this.prevState, flushId);
+  this.subscriptions.endBatch();
+  this.changedKeys.clear();
 }`}
 </CodeBlock>
 

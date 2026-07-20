@@ -87,6 +87,6 @@ Actions in a slice are automatically injected into the state tree. This keeps yo
 2.  **Shared Slices**: Use a `shared` slice for cross-cutting data like notifications or configuration.
 3.  **Cross-Slice Logic**: If an action needs to update multiple slices, define it as a standard action that calls `store.setState` at the root level, rather than inside a specific slice's reducers.
 
-<Admonition type="info" title="Zero Overhead">
-  <p>Modularizing your store with slices has <strong>zero runtime performance cost</strong>. SoulState's propagation engine treats the combined tree as a single graph, providing the same systems-grade throughput as a flat store.</p>
+<Admonition type="info" title="No Performance Penalty">
+  <p>Modularizing your store with slices has <strong>no runtime performance cost</strong>. SoulState's propagation engine treats the combined tree as a single graph, providing the same systems-grade throughput as a flat store.</p>
 </Admonition>

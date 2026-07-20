@@ -28,7 +28,7 @@ The primary hook for subscribing to store state in React components.
 3.  **Concurrent Safety**: Built on `useSyncExternalStore`, ensuring no "tearing" occurs during React's concurrent rendering.
 
 <CodeBlock language="tsx">
-{`import { useStore } from 'soulstate';
+{`import { useStore } from 'soulstate/react';
 
 function Profile() {
   // Only re-renders if 'user.name' or 'user' key changes
@@ -47,7 +47,7 @@ A context-based provider for distributing stores through the component tree. Thi
 ### Usage
 
 <CodeBlock language="tsx">
-{`import { Provider } from 'soulstate';
+{`import { Provider } from 'soulstate/react';
 
 function App() {
   const [myStore] = useState(() => createStore(initialState));
@@ -68,7 +68,7 @@ function App() {
 Access the store instance provided by the nearest `Provider`.
 
 <CodeBlock language="tsx">
-{`import { useStoreContext, useStore } from 'soulstate';
+{`import { useStoreContext, useStore } from 'soulstate/react';
 
 function ScopedComponent() {
   const store = useStoreContext();
@@ -86,13 +86,13 @@ function ScopedComponent() {
 A specialized hook for selecting multiple properties while maintaining stable references.
 
 <CodeBlock language="tsx">
-{`import { useStore, useShallow } from 'soulstate';
+{`import { useShallow } from 'soulstate/react';
 
 function UserCard() {
   // Re-renders only if name or email changes
-  const { name, email } = useStore(
+  const { name, email } = useShallow(
     store,
-    useShallow(s => ({ name: s.user.name, email: s.user.email }))
+    s => ({ name: s.user.name, email: s.user.email })
   );
 
   return <div>{name} ({email})</div>;

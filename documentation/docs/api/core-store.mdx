@@ -19,11 +19,10 @@ Creates a new store instance. It can take either an initial state object or a "c
 <CodeBlock language="typescript">
 {`function createStore<T extends State>(
   creator: StateCreator<T> | T
-): StoreApi<T>;
-`}
+): StoreApi<T>;`}
 </CodeBlock>
 
-- **`creator`**: The initial state object or a function to create the state.
+- **`creator`**: The initial state object or a Zustand-style creator function.
 - **Returns**: A `StoreApi<T>` instance.
 
 ### Using an Initial State Object
@@ -33,104 +32,442 @@ Creates a new store instance. It can take either an initial state object or a "c
 
 export const counterStore = createStore({
   count: 0
-});
-`}
+});`}
 </CodeBlock>
 
 ### Using a Creator Function (Zustand style)
 
-The creator function receives `setState`, `getState`, and `api` as arguments, allowing you to define actions directly inside the store.
+The creator function receives `setState`, `getState`, and `api` as arguments.
 
 <CodeBlock language="typescript">
 {`import { createStore } from 'soulstate';
 
-export const useBearStore = createStore((setState, getState) => ({
-  bears: 0,
-  increase: () => setState((state) => ({ bears: state.bears + 1 })),
-  reset: () => setState({ bears: 0 })
-}));
-`}
+export const counterStore = createStore((set, get) => ({
+  count: 0,
+  increment: () => set((state) => ({ count: state.count + 1 })),
+  reset: () => set({ count: 0 }),
+  getDouble: () => get().count * 2
+}));`}
 </CodeBlock>
 
 ---
 
-## `StoreApi` Interface
+## `StoreApi<T>` Interface
 
 `createStore` returns a `StoreApi` object with the following methods:
 
 <CodeBlock language="typescript">
-{`export interface StoreApi<T extends State> {
+{`interface StoreApi<T extends State> {
   getState: () => T;
-  setState: (updater: PartialState<T>, replace?: boolean, sync?: boolean) => void;
+  getVersion: () => number;
+  setState: (
+    updater: PartialState<T>,
+    replace?: boolean,
+    sync?: boolean
+  ) => void;
   subscribe: <S>(
-    selector: Selector<T, S>,
-    listener: Listener<S>,
-    options?: SubscribeOptions<S>
+    selector: (state: T) => S,
+    listener: (state: S, prevState: S) => void,
+    options?: { equalityFn?: (a: S, b: S) => boolean }
   ) => () => void;
   computed: {
-    <S>(selector: Selector<T, S>, name?: string): Computed<S>;
-    <A, B, R>(a: Computed<A> | Selector<T, A>, b: Computed<B> | Selector<T, B>, combiner: (a: A, b: B) => R): Computed<R>;
+    <S>(selector: (state: T) => S, name?: string): Computed<S>;
+    <S extends any[], R>(
+      ...args: [
+        ...{ [K in keyof S]: ((state: T) => S[K]) | Computed<S[K]> },
+        (...vals: S) => R
+      ]
+    ): Computed<R>;
   };
   beginTransaction: () => void;
   commitTransaction: () => void;
   rollbackTransaction: () => void;
   enableInstrumentation: (options?: RuntimeInstrumentation) => void;
-  getMetrics: () => MetricsSnapshot;
+  getMetrics: () => MetricsSnapshot | null;
   destroy: () => void;
-}
-`}
+}`}
 </CodeBlock>
 
 ---
 
-## Store Methods
-
-### `store.getState()`
+## `store.getState()`
 
 Returns the current state of the store.
 
-- **Signature**: `() => T`
-- **Behavior**: Returns the current state. If a transaction is active, returns the buffered state from the transaction engine.
+### Signature
 
-### `store.setState()`
+<CodeBlock language="typescript">
+{`getState: () => T`}
+</CodeBlock`
+
+### Behavior
+
+- Returns the current state object.
+- If a transaction is active, returns the **buffered state** from the transaction engine.
+- Issues a dev-mode warning if the store has been destroyed.
+
+### Example
+
+<CodeBlock language="typescript">
+{`const state = store.getState();
+console.log(state.count); // 0`}
+</CodeBlock>
+
+---
+
+## `store.getVersion()`
+
+Returns the current version number of the state.
+
+### Signature
+
+<CodeBlock language="typescript">
+{`getVersion: () => number`}
+</CodeBlock>
+
+### Behavior
+
+- Returns a monotonically increasing integer.
+- Incremented by 1 each time `setState` applies a non-noop update.
+- Useful for avoiding unnecessary re-computation in derived selectors.
+
+### Example
+
+<CodeBlock language="typescript">
+{`const v1 = store.getVersion(); // 0
+store.setState({ count: 1 });
+const v2 = store.getVersion(); // 1
+v2 > v1; // true`}
+</CodeBlock>
+
+---
+
+## `store.setState()`
 
 Updates the store's state.
 
-- **Signature**: `(updater, replace?, sync?) => void`
-- **Parameters**:
-  - `updater`: Partial state object or a function returning partial state.
-  - `replace` (optional): If true, replaces the entire state object instead of merging.
-  - `sync` (optional): If true, bypasses the microtask scheduler and propagates changes immediately to all subscribers.
+### Signature
 
-### `store.subscribe()`
+<CodeBlock language="typescript">
+{`setState: (
+  updater: Partial<T> | ((state: T) => Partial<T> | T),
+  replace?: boolean,
+  sync?: boolean
+) => void`}
+</CodeBlock>
+
+### Parameters
+
+1. **`updater`**: Partial state object or updater function.
+2. **`replace`** (optional): If `true`, replaces the entire state instead of merging.
+3. **`sync`** (optional): If `true`, bypasses the microtask scheduler and propagates immediately.
+
+### Behavior
+
+- Merges partial state into current state by default.
+- If the updater produces values identical to the current state (per `Object.is`), the update is a no-op.
+- Multiple synchronous `setState` calls are batched into a single propagation cycle.
+
+### Example
+
+<CodeBlock language="typescript">
+{`// Object form
+store.setState({ count: 5 });
+
+// Updater function form
+store.setState((state) => ({ count: state.count + 1 }));
+
+// Replace entire state
+store.setState({ count: 0, user: null }, true);
+
+// Synchronous propagation (bypass batching)
+store.setState({ count: 1 }, false, true);`}
+</CodeBlock>
+
+---
+
+## `store.subscribe()`
 
 Subscribes to state changes with granular dependency tracking.
 
-- **Signature**: `<S>(selector, listener, options?) => () => void`
-- **Options**:
-  - `equalityFn`: Custom comparison function (defaults to `Object.is`).
-  - `fireImmediately`: If true, executes the listener immediately with the current state upon subscription.
+### Signature
 
-### `store.computed()`
+<CodeBlock language="typescript">
+{`subscribe: <S>(
+  selector: (state: T) => S,
+  listener: (state: S, prevState: S) => void,
+  options?: { equalityFn?: (a: S, b: S) => boolean }
+) => () => void`}
+</CodeBlock>
+
+### Parameters
+
+1. **`selector`**: A function to pick data from the state. Automatically tracked for dependency changes.
+2. **`listener`**: Called whenever the selected value changes.
+3. **`options`**: Optional `equalityFn` for custom comparison (defaults to `Object.is`).
+
+### Returns
+
+A teardown function that unregisters the listener.
+
+### Example
+
+<CodeBlock language="typescript">
+{`const unsub = store.subscribe(
+  (s) => s.count,
+  (count, prevCount) => {
+    console.log(\`count: \${prevCount} → \${count}\`);
+  }
+);
+
+// Later:
+unsub();`}
+</CodeBlock>
+
+---
+
+## `store.computed()`
 
 Creates a derived, memoized state node that is part of the reactive graph.
 
-- **Signature**: `(selector, name?)` or `(...deps, combiner)`
-- **Behavior**: Computed nodes are lazily evaluated and cached. They recompute only when their dependencies change, in deterministic topological order.
+### Signature
 
-### `store.beginTransaction()` / `commitTransaction()`
+<CodeBlock language="typescript">
+{`// Single selector
+computed<S>(selector: (state: T) => S, name?: string): Computed<S>;
 
-Buffers multiple updates into a single atomic propagation cycle. Ideal for complex multi-step state transitions.
+// Multi-dependency
+computed<S extends any[], R>(
+  ...deps: [...((state: T) => S[K])[], (...vals: S) => R]
+): Computed<R>;`}
+</CodeBlock>
 
-### `store.enableInstrumentation()`
+### Parameters
 
-Enables systems-grade diagnostics for profiling the runtime propagation and selector performance.
+- **Single selector form**: A selector function and an optional name (string or symbol).
+- **Multi-dependency form**: An array of selector functions or `Computed` objects, followed by a combiner function as the last argument.
 
+### Returns
 
-<Admonition type="info" title="Granular Reactivity">
-  <p>SoulState uses a <code>DependencyGraph</code> to track which keys are accessed by your selector. It only executes the listener if one of the accessed keys has changed in the state.</p>
-</Admonition>
+A `Computed<S>` object (see below).
 
-<Admonition type="success" title="Performance">
-  <p>Subscriptions are managed using a doubly linked list for $O(1)$ add/remove operations, ensuring SoulState scales effortlessly to thousands of subscribers.</p>
+### Example
+
+<CodeBlock language="typescript">
+{`// Single selector
+const doubled = store.computed(
+  (s) => s.count * 2,
+  'doubled'
+);
+console.log(doubled.value); // 2 (if count is 1)
+
+// Multi-dependency
+const area = store.computed(
+  (s) => s.width,
+  (s) => s.height,
+  (w, h) => w * h
+);
+console.log(area.value); // 50 (if width=5, height=10)`}
+</CodeBlock>
+
+---
+
+## `Computed<T>` Interface
+
+Returned by `store.computed()`. Represents a memoized derived value in the reactive graph.
+
+<CodeBlock language="typescript">
+{`interface Computed<T> {
+  readonly value: T;
+  readonly name?: string | symbol;
+  destroy(): void;
+}`}
+</CodeBlock>
+
+### Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `value` | `T` | Lazily evaluated. Recomputes only when dependencies change. |
+| `name` | `string \| symbol` | Optional identifier passed during creation. |
+| `destroy()` | `() => void` | Removes the computed node from the reactive graph and cleans up dependencies. |
+
+### Lazy Evaluation
+
+The `value` getter triggers recomputation only when the node is marked dirty. Reading `.value` during a tracking context (e.g., inside another `computed` or `subscribe` selector) registers the current node as a dependency.
+
+### Example
+
+<CodeBlock language="typescript">
+{`const sum = store.computed((s) => s.a + s.b, 'sum');
+console.log(sum.value); // Lazily computed
+
+// Subscribe to computed value changes
+store.subscribe(
+  (s) => sum.value,
+  (val) => console.log('sum changed:', val)
+);
+
+// Clean up when no longer needed
+sum.destroy();`}
+</CodeBlock>
+
+---
+
+## `store.beginTransaction()`
+
+Begins a transaction. Updates within a transaction are buffered until committed.
+
+### Signature
+
+<CodeBlock language="typescript">
+{`beginTransaction: () => void`}
+</CodeBlock>
+
+### Behavior
+
+- While a transaction is active, `setState` calls are buffered.
+- `getState()` returns the buffered state (including pending changes).
+- Supports nested transactions (depth counter).
+
+### Example
+
+<CodeBlock language="typescript">
+{`store.beginTransaction();
+store.setState({ a: 1 });
+store.setState({ b: 2 });
+store.commitTransaction(); // Single propagation cycle`}
+</CodeBlock>
+
+---
+
+## `store.commitTransaction()`
+
+Commits the current transaction, applying all buffered updates in a single propagation cycle.
+
+---
+
+## `store.rollbackTransaction()`
+
+Rolls back the current transaction, discarding all buffered updates. The state reverts to what it was before `beginTransaction()` was called.
+
+### Example
+
+<CodeBlock language="typescript">
+{`store.beginTransaction();
+store.setState({ count: 999 });
+store.rollbackTransaction();
+store.getState().count; // Unchanged — rollback discarded the update`}
+</CodeBlock>
+
+---
+
+## `store.enableInstrumentation()`
+
+Enables runtime profiling and diagnostics.
+
+### Signature
+
+<CodeBlock language="typescript">
+{`enableInstrumentation: (options?: RuntimeInstrumentation) => void
+
+interface RuntimeInstrumentation {
+  onFlush?: (duration: number, changedKeys: Set<string | symbol>) => void;
+  onSelectorRun?: (name: string | symbol, duration: number) => void;
+  onInvalidate?: (key: string | symbol) => void;
+  onRender?: (count: number) => void;
+}`}
+</CodeBlock>
+
+### Parameters
+
+| Callback | Description |
+|----------|-------------|
+| `onFlush` | Called after each flush cycle with the duration (ms) and the set of changed keys. |
+| `onSelectorRun` | Called after each selector execution with its name and duration. |
+| `onInvalidate` | Called when a computed node is marked dirty. |
+| `onRender` | Called with the render count. |
+
+### Example
+
+<CodeBlock language="typescript">
+{`store.enableInstrumentation({
+  onFlush: (duration, keys) => {
+    console.log(\`Flush: \${duration.toFixed(3)}ms for\`, keys);
+  },
+  onSelectorRun: (name, duration) => {
+    console.log(\`Selector \${String(name)}: \${duration.toFixed(3)}ms\`);
+  }
+});`}
+</CodeBlock>
+
+---
+
+## `store.getMetrics()`
+
+Returns a snapshot of the runtime performance metrics.
+
+### Signature
+
+<CodeBlock language="typescript">
+{`getMetrics: () => MetricsSnapshot | null
+
+interface MetricsSnapshot {
+  flushCount: number;
+  selectorRunCount: number;
+  invalidationCount: number;
+  averageFlushDuration: number;
+  totalFlushDuration: number;
+  lastFlushDuration: number;
+}`}
+</CodeBlock>
+
+### Returns
+
+`MetricsSnapshot` if instrumentation is enabled, otherwise `null`.
+
+### Example
+
+<CodeBlock language="typescript">
+{`store.enableInstrumentation({});
+store.setState({ count: 1 });
+
+const metrics = store.getMetrics();
+console.log('Flush count:', metrics.flushCount);
+console.log('Avg flush:', metrics.averageFlushDuration, 'ms');`}
+</CodeBlock>
+
+---
+
+## `store.destroy()`
+
+Destroys the store and removes all listeners, computed nodes, and graph edges.
+
+### Signature
+
+<CodeBlock language="typescript">
+{`destroy: () => void`}
+</CodeBlock>
+
+### Behavior
+
+- Clears all subscriptions, computed nodes, and graph edges.
+- After destruction:
+  - `setState()` throws `[SoulState] Cannot update state on a destroyed store`
+  - `subscribe()` throws `[SoulState] Cannot subscribe to a destroyed store`
+  - `beginTransaction()` throws `[SoulState] Cannot begin transaction on a destroyed store`
+  - `computed()` throws `[SoulState] Cannot create computed on a destroyed store`
+  - `getState()` returns the last state and issues a dev-mode warning.
+
+### Example
+
+<CodeBlock language="typescript">
+{`const store = createStore({ count: 0 });
+// ... use the store ...
+store.destroy();
+// Store is now cleaned up`}
+</CodeBlock>
+
+<Admonition type="warning" title="Irreversible">
+  <p><code>destroy()</code> is irreversible. You cannot reuse a destroyed store instance.</p>
 </Admonition>

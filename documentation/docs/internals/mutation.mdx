@@ -13,15 +13,23 @@ When `setState` is called, SoulState performs a multi-step transition:
 1.  **Reconciliation**: The new partial state is merged with the current state to create a new root object.
 2.  **Key Detection**: SoulState identifies which top-level keys changed by comparing the old and new root properties via `Object.is`.
 3.  **Invalidation Triggering**: The changed keys are sent to the **Invalidation Graph**.
-4.  **Propagation**: The `PropagationEngine` schedules a flush to notify affected nodes in topological order.
+4.  **Propagation**: The `Runtime` schedules a flush to notify affected nodes in topological order.
 
 <CodeBlock language="typescript">
 {`// Internal transition logic (simplified)
-const nextState = Object.assign({}, currentState, partialUpdate);
-const changedKeys = detectChanges(currentState, nextState);
+// src/core/store.ts setState handler
+const nextState = { ...currentState, ...partialUpdate };
+const changedKeys: DependencyKey[] = [];
+
+// Surgical key detection via Object.is
+for (const key of Object.keys(nextState)) {
+  if (!objectIs(currentState[key], nextState[key])) {
+    changedKeys.push(key);
+  }
+}
 
 if (changedKeys.length > 0) {
-  runtime.trigger(nextState, changedKeys);
+  runtime.setState(nextState, changedKeys);
 }
 `}
 </CodeBlock>

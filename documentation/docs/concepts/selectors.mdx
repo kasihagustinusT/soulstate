@@ -8,7 +8,7 @@ Selectors are the primary mechanism for reading data from a SoulState store. In 
 
 ## Automatic Tracking Proxy
 
-When a selector runs (via `useStore` or `computed`), SoulState executes it using a **Zero-Allocation Tracking Proxy**. This proxy intercepts property accesses and records which keys your selector depends on.
+When a selector runs (via `useStore` or `computed`), SoulState executes it using a **Reusable Tracking Proxy**. This proxy intercepts property accesses and records which keys your selector depends on.
 
 <CodeBlock language="typescript">
 {`const name = useStore(store, s => s.user.name);

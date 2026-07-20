@@ -47,10 +47,10 @@ export const actions = {
 
 ## 3. Surgical React Integration
 
-Use the `useStore` hook to subscribe to specific data slices. SoulState uses a **Zero-Allocation Tracking Proxy** to identify exactly which keys your component depends on.
+Use the `useStore` hook to subscribe to specific data slices. SoulState uses a **Reusable Tracking Proxy** to identify exactly which keys your component depends on.
 
 <CodeBlock language="tsx">
-{`import { useStore } from 'soulstate'; // Exported from main package or 'soulstate/react'
+{`import { useStore } from 'soulstate/react';
 import { store, actions } from './store';
 
 export function UserStatus() {

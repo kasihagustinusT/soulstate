@@ -55,8 +55,8 @@ const count = useStore(store, (state) => state.count);
 
 **Solution:** Each store is independent. Ensure you're using the correct store instance:
 ```typescript
-const storeA = createStore({ state: { a: 1 } });
-const storeB = createStore({ state: { b: 2 } });
+const storeA = createStore({ a: 1 });
+const storeB = createStore({ b: 2 });
 
 // Each store is separate
 useStore(storeA, (state) => state.a);
@@ -163,7 +163,7 @@ store.subscribe(
 
 **Solution:** Use shallow equality for object selections:
 ```typescript
-import { shallow } from 'soulstate/shallow';
+import { shallow } from 'soulstate/utils';
 
 useStore(
   store,
@@ -212,11 +212,11 @@ function App() {
 
 **Solution:** Use the transaction API:
 ```typescript
-store.transaction((state) => {
-  state.count += 1;
-  state.name = 'updated';
-  // Both updates happen atomically
-});
+store.beginTransaction();
+store.setState({ count: 1 });
+store.setState({ name: 'updated' });
+// Both updates happen atomically
+store.commitTransaction();
 ```
 
 ### Transaction rollback not working
@@ -225,14 +225,14 @@ store.transaction((state) => {
 
 **Solution:** Ensure you're in a transaction:
 ```typescript
-const transaction = store.beginTransaction();
+store.beginTransaction();
 
 try {
   store.setState({ count: 1 });
   store.setState({ count: 2 });
-  transaction.rollback(); // Reverts to state before transaction
+  store.rollbackTransaction(); // Reverts to state before transaction
 } catch (error) {
-  transaction.rollback();
+  store.rollbackTransaction();
 }
 ```
 
@@ -241,14 +241,21 @@ try {
 ### Enable instrumentation
 
 ```typescript
-import { enableInstrumentation } from 'soulstate';
-
-enableInstrumentation();
+store.enableInstrumentation({
+  onFlush: (duration, keys) => {
+    console.log('Flush duration:', duration);
+  },
+  onSelectorRun: (name, duration) => {
+    console.log('Selector:', String(name), 'took', duration, 'ms');
+  }
+});
 
 // Access metrics
 const metrics = store.getMetrics();
-console.log('Flush duration:', metrics.flushDuration);
-console.log('Selector runs:', metrics.selectorRuns);
+if (metrics) {
+  console.log('Average Flush Time:', metrics.averageFlushDuration);
+  console.log('Selector Runs:', metrics.selectorRunCount);
+}
 ```
 
 ### Check store state

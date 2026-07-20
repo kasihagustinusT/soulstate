@@ -25,7 +25,7 @@ Modern enterprise applications often suffer from "subscription bloat," where a s
 - **Sparse Update Supremacy**: Using a Directed Acyclic Graph (DAG), SoulState skips unrelated subscribers entirely. In a 100,000-subscriber store, if you change a key used by only 1% of listeners, SoulState notifies 1,000 nodes and **ignores the other 99,000**.
 - **Deep Propagation Performance**: SoulState's level-based propagation engine guarantees glitch-free, topological ordering for deeply nested computed state, ensuring consistent views across complex dependency chains.
 - **Deterministic Execution**: Updates are batched via a deterministic microtask scheduler, ensuring repeatable execution order and preventing "glitches" or recursive propagation explosions.
-- **Zero-Allocation Tracking**: A reusable tracking proxy detects dependencies with minimal garbage collection pressure, critical for high-frequency update loops.
+- **Proxy-Based Tracking**: A reusable tracking proxy detects dependencies with minimal garbage collection pressure, critical for high-frequency update loops.
 
 ## Real-World Use Cases
 

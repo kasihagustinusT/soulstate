@@ -8,7 +8,7 @@ import { Admonition } from '@site/src/components/Admonition';
 
 # System Architecture
 
-SoulState's architecture is built on three systems-grade pillars: **Invalidation Graph Propagation**, **Deterministic Scheduling**, and **Zero-Allocation Tracking**. This document details how these systems interact to provide a high-performance granular reactive runtime.
+SoulState's architecture is built on three systems-grade pillars: **Invalidation Graph Propagation**, **Deterministic Scheduling**, and **Proxy-Based Tracking**. This document details how these systems interact to provide a high-performance granular reactive runtime.
 
 ## Core Runtime Systems
 
@@ -17,9 +17,9 @@ SoulState's runtime is divided into specialized modules that handle distinct par
 1.  **StoreApi**: The public interface providing `getState`, `setState`, `subscribe`, `computed`, and `destroy`.
 2.  **Runtime**: The central orchestrator managing the state transition and propagation pipeline.
 3.  **InvalidationGraph**: A Directed Acyclic Graph (DAG) that maps state keys to their direct and indirect dependents (computeds and subscribers).
-4.  **PropagationEngine**: A level-based dispatch system that ensures glitch-free updates in deterministic topological order.
-5.  **SubscriptionManager**: Optimized dual linked-list management for global and granular subscribers.
-6.  **Scheduler**: A microtask-based deterministic batching engine.
+4.  **SubscriptionManager**: Optimized dual linked-list management for global and granular subscribers with bitmask fast-paths.
+5.  **Scheduler**: A microtask-based deterministic batching engine.
+6.  **TransactionEngine**: A transaction buffering system with begin/commit/rollback lifecycle.
 
 ### Architecture Flow Diagram
 
@@ -55,7 +55,7 @@ Every update follows a strict path:
 The `InvalidationGraph` (in `src/internals/graph.ts`) is the heart of SoulState. It treats your state and its derivatives as a **Reactive Graph**.
 
 ### Surgical Tracking
-When a component or computed value accesses a state key, it is registered as a dependent in the graph. SoulState uses a **Zero-Allocation Tracking Proxy** (in `src/internals/invalidation.ts`) to detect these dependencies with minimal GC overhead.
+When a component or computed value accesses a state key, it is registered as a dependent in the graph. SoulState uses a **Reusable Tracking Proxy** (in `src/internals/invalidation.ts`) to detect these dependencies with minimal GC overhead.
 
 ### Level-Based Propagation
 To eliminate "glitches" (inconsistent intermediate states), SoulState assigns a **topological level** to every node in the graph:

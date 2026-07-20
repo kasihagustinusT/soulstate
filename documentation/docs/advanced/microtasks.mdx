@@ -47,11 +47,14 @@ When `setState` is called, the `Runtime` identifies changed keys but **defers pr
 The `Runtime` requests an update. If a batch is already in progress, it simply records the changed keys.
 
 <CodeBlock language="typescript">
-{`// src/core/runtime.ts
+{`// src/core/runtime.ts (simplified)
 private requestUpdate(): void {
   if (this.isBatching) return;
   this.isBatching = true;
-  scheduleTask(() => this.processUpdate());
+  scheduleTask(() => {
+    this.processUpdate();
+    this.isBatching = false;
+  });
 }
 `}
 </CodeBlock>

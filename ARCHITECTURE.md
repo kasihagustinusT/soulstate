@@ -1,6 +1,6 @@
 # SoulState Architecture
 
-SoulState is a fine-grained reactive state management runtime built on three systems-grade pillars: **Invalidation Graph Propagation**, **Deterministic Scheduling**, and **Zero-Allocation Tracking**.
+SoulState is a fine-grained reactive state management runtime built on three systems-grade pillars: **Invalidation Graph Propagation**, **Deterministic Scheduling**, and **Proxy-Based Tracking**.
 
 ## Core Components
 
@@ -12,6 +12,8 @@ SoulState is a fine-grained reactive state management runtime built on three sys
 | **SelectorRegistry** | `src/internals/invalidation.ts` | Proxy-based dependency tracking with bitmask fast paths |
 | **SubscriptionManager** | `src/core/subscriptions.ts` | Dual linked-list system for global and granular subscribers |
 | **Scheduler** | `src/core/scheduler.ts` | Microtask-based deterministic batching engine |
+| **TransactionEngine** | `src/core/transactions.ts` | Transaction buffering with begin/commit/rollback lifecycle |
+| **RuntimeMetrics** | `src/internals/metrics.ts` | Runtime observability: flush durations, selector runs, invalidations |
 
 ## Update Lifecycle
 
@@ -72,8 +74,8 @@ Updates process level-by-level, ensuring a node only executes after its dependen
 4. **Bypass Fast-Path**: No granular listeners = bypass propagation engine
 
 ### Dual-Path Dispatch
-- **Bitmask Path** (≤8 keys): Direct bitmask comparison, O(1) key lookup
-- **Graph Path** (>8 keys): Full DAG traversal for complex dependency chains
+- **Bitmask Path** (≤64 keys): Direct bitmask comparison, O(1) key lookup via 64-bit mask
+- **Graph Path** (>64 keys): Full DAG traversal for complex dependency chains
 
 ## File Structure
 
@@ -85,29 +87,33 @@ src/
 │   ├── subscriptions.ts  # Subscription management
 │   ├── scheduler.ts      # Microtask batching
 │   ├── transactions.ts   # Transaction support
+│   ├── selectors.ts      # createSelector, selector, derived utilities
 │   └── types.ts          # Core type definitions
 ├── internals/
 │   ├── graph.ts          # InvalidationGraph implementation
 │   ├── invalidation.ts   # Computed nodes and dependency tracking
-│   ├── metrics.ts        # Runtime observability
-│   └── propagation.ts    # Topological propagation engine
+│   └── metrics.ts        # Runtime observability
 ├── middleware/
+│   ├── index.ts          # Middleware re-exports
 │   ├── devtools.ts       # Redux DevTools integration
 │   └── persist.ts        # Persistence middleware
 ├── utils/
-│   ├── batch.ts          # Batch utility
-│   ├── equality.ts       # Equality functions
-│   └── shallow.ts        # Shallow comparison
+│   ├── index.ts          # Utils re-exports
+│   ├── batch.ts          # Batch utility (no-op wrapper)
+│   ├── equality.ts       # objectIs (Object.is alias)
+│   ├── shallow.ts        # Shallow comparison
+│   └── slice.ts          # createSlice and combineSlices
 ├── react/
 │   ├── index.ts          # React exports
 │   ├── provider.tsx      # React context provider
-│   └── useStore.ts       # useStore hook
+│   ├── useStore.ts       # useStore hook
+│   └── useShallow.ts     # useShallow hook
 └── index.ts              # Main exports
 ```
 
 ## Design Principles
 
-1. **Zero-Allocation Tracking**: Reusable proxy-based dependency detection minimizes GC pressure
+1. **Proxy-Based Tracking**: Reusable proxy-based dependency detection minimizes GC pressure
 2. **Deterministic Updates**: Microtask batching ensures consistent propagation order
 3. **Surgical Precision**: Only affected subscribers receive notifications
 4. **Scalability**: Handles 100K+ subscribers with stable performance
